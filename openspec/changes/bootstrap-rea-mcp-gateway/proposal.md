@@ -67,6 +67,8 @@ relicensed.
   validity checks.
 - `secret-hygiene`: Repository-level guarantees that no secrets, samples, or
   third-party binaries are committed, and how that is enforced.
+- `ci-gate`: The pull-request gate, pinning of actions and tools, and the
+  branch protection on `main` that makes the gate binding.
 
 ### Modified Capabilities
 

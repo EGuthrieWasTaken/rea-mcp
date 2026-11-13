@@ -1,0 +1,7 @@
+# gitleaks configuration: the default rule set, with no allowlists.
+# If a finding is a genuine false positive, allowlist that one finding by its
+# fingerprint in .gitleaksignore. Never allowlist a path or a broad pattern here.
+title = "rea-mcp"
+
+[extend]
+useDefault = true
