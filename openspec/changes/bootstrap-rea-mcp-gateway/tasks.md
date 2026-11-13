@@ -7,7 +7,7 @@ Ask the maintainer before pushing or publishing to GHCR.
 
 - [x] 1.1 Create `CLAUDE.md` containing the five hard requirements and the process rules verbatim from `openspec/config.yaml`; verify by reading it back against the brief
 - [x] 1.2 Add `.env.example` listing every supported variable with `REA_MCP_API_KEY=` empty; verify no line carries a value that resembles a key
-- [ ] 1.3 Confirm `.gitignore` covers `.env`, `*.pcap`, `*.pcapng`, `samples/`, `work/`, `*.gpr`, `*.rep`, `*.tns`, and TI installers; verify with `git check-ignore` on one path per pattern
+- [x] 1.3 Confirm `.gitignore` covers `.env`, `*.pcap`, `*.pcapng`, `samples/`, `work/`, `*.gpr`, `*.rep`, `*.tns`, and TI installers; verify with `git check-ignore` on one path per pattern
 - [x] 1.4 Add `.gitleaks.toml` (default rules, no broad allowlists) and `.pre-commit-config.yaml` with the gitleaks hook; verify gitleaks rejects a staged throwaway credential-shaped string and passes on the clean tree
 
 ## 2. REA launch discovery (gate)
