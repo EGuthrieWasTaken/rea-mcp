@@ -5,16 +5,16 @@ Ask the maintainer before pushing or publishing to GHCR.
 
 ## 1. Guard rails
 
-- [ ] 1.1 Create `CLAUDE.md` containing the five hard requirements and the process rules verbatim from `openspec/config.yaml`; verify by reading it back against the brief
-- [ ] 1.2 Add `.env.example` listing every supported variable with `REA_MCP_API_KEY=` empty; verify no line carries a value that resembles a key
-- [ ] 1.3 Confirm `.gitignore` covers `.env`, `*.pcap`, `*.pcapng`, `samples/`, `work/`, `*.gpr`, `*.rep`, `*.tns`, and TI installers; verify with `git check-ignore` on one path per pattern
+- [x] 1.1 Create `CLAUDE.md` containing the five hard requirements and the process rules verbatim from `openspec/config.yaml`; verify by reading it back against the brief
+- [x] 1.2 Add `.env.example` listing every supported variable with `REA_MCP_API_KEY=` empty; verify no line carries a value that resembles a key
+- [x] 1.3 Confirm `.gitignore` covers `.env`, `*.pcap`, `*.pcapng`, `samples/`, `work/`, `*.gpr`, `*.rep`, `*.tns`, and TI installers; verify with `git check-ignore` on one path per pattern
 - [x] 1.4 Add `.gitleaks.toml` (default rules, no broad allowlists) and `.pre-commit-config.yaml` with the gitleaks hook; verify gitleaks rejects a staged throwaway credential-shaped string and passes on the clean tree
 
 ## 2. REA launch discovery (gate)
 
-- [ ] 2.1 In a throwaway directory outside the repo, inspect `rea-agents` (README, `--help`, `package.json` `bin`, entry files, and what `setup` would write, using a dry run or a scratch `HOME`) to determine the exact command that starts REA as a standalone stdio MCP server; verify by completing an MCP `initialize` and `tools/list` against it over stdio
-- [ ] 2.2 Record how REA finds Ghidra, reads `REA_GHIDRA_STARTUP_TIMEOUT_MS`, which Node versions it supports, and where it writes output; mark anything not confirmed from source or by running it as UNVERIFIED
-- [ ] 2.3 Write the findings and the exact launch command into `docs/DESIGN.md`; **if REA cannot run as a standalone stdio MCP server, stop here and report to the maintainer**
+- [x] 2.1 In a throwaway directory outside the repo, inspect `rea-agents` (README, `--help`, `package.json` `bin`, entry files, and what `setup` would write, using a dry run or a scratch `HOME`) to determine the exact command that starts REA as a standalone stdio MCP server; verify by completing an MCP `initialize` and `tools/list` against it over stdio
+- [x] 2.2 Record how REA finds Ghidra, reads `REA_GHIDRA_STARTUP_TIMEOUT_MS`, which Node versions it supports, and where it writes output; mark anything not confirmed from source or by running it as UNVERIFIED
+- [x] 2.3 Write the findings and the exact launch command into `docs/DESIGN.md`; **if REA cannot run as a standalone stdio MCP server, stop here and report to the maintainer**
 - [ ] 2.4 Evaluate `mcp-proxy` and `supergateway` against the three criteria (header-auth middleware, one child per session, keep-alives) and record the gateway implementation choice in `docs/DESIGN.md`
 
 ## 3. Gateway
