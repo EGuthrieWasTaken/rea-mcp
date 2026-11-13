@@ -1,0 +1,65 @@
+# --- Secrets and local configuration (never commit) ---
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/
+
+# --- Analysis inputs and outputs (never commit) ---
+samples/
+work/
+*.pcap
+*.pcapng
+
+# Ghidra projects and databases
+*.gpr
+*.rep/
+*.rep
+
+# --- TI software, installers, and calculator binaries (never commit) ---
+*.tns
+*.tnc
+*.tno
+*.tco
+*.tcc
+*.tmo
+*.tmc
+*.tilp
+*.8xp
+*.8xk
+*.8xu
+*.89u
+*.89k
+*.9xu
+*.v2u
+*.rom
+*.exe
+*.msi
+*.dmg
+*.pkg
+*.apk
+*.ipa
+ti-installers/
+vendor-binaries/
+
+# --- Downloaded third-party tooling (fetched at image build time) ---
+ghidra_*.zip
+ghidra_*/
+
+# --- Node / TypeScript ---
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+.npm/
+
+# --- Editors / OS ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
