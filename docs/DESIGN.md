@@ -134,3 +134,155 @@ What this means for the gateway (inputs to task 2.4, not decisions):
   checks. This is to be confirmed in 2.4.
 - The statement in the proposal's "Why" section is stale and should be reworded
   when the artifacts are next updated.
+
+## 2. REA runtime facts
+
+These are the facts the gateway and image depend on (task 2.2). Anything that
+would need a running Ghidra could not be exercised during discovery, because
+Ghidra was not available there, and is marked **UNVERIFIED** with the task that
+closes it.
+
+### 2.1 Node versions
+
+`package.json` declares `engines.node` as `^22.23.4 || ^24.22.1 || >=26.12.1`
+(**Source**), and `scripts/rea.mjs` enforces it at start through
+`scripts/lib/runtime-admission.mjs`. Calling REA's own check with candidate
+versions (**Ran**):
+
+| Node | 22.22.0 | 22.23.4 | 23.0.0 | 24.0.0 | 24.21.9 | 24.22.1 | 24.30.0 | 25.1.0 | 26.12.0 | 26.12.1 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Admitted | no | **yes** | no | no | no | **yes** | **yes** | no | no | **yes** |
+
+- Node 24 is supported **only from 24.22.1**, and Node 25 is not supported. The
+  image's Node 24 base must resolve to 24.22.1 or newer. What the `node:24-*`
+  tag currently resolves to was not checked: **UNVERIFIED** (task 4.2/4.3).
+- REA was exercised on Node 22.23.4 only (**Ran**). Running it on Node 24 was
+  not possible in the discovery environment, so REA's behaviour on Node 24
+  beyond the admission rule is **UNVERIFIED**. The CI job on Node 24 and the
+  image smoke test (tasks 6.1, 4.7) are the first runs that can confirm it.
+
+### 2.2 How REA finds Ghidra and Java
+
+- **`GHIDRA_INSTALL_DIR`**: absolute path to the root of an extracted official
+  Ghidra release, containing `support/analyzeHeadless` and
+  `Ghidra/application.properties`. A relative path is rejected
+  (**Source**: `GhidraInstallation.ts`). With it unset, `rea doctor` reports
+  `GHIDRA_INSTALL_DIR is not set` and "Set GHIDRA_INSTALL_DIR to an extracted
+  Ghidra 12.x (>=12.1) release directory" (**Ran**).
+- **Fallback**: a `ghidra` or `ghidraRun` launcher on `PATH` whose real path
+  lies inside a complete Ghidra tree (**Source**: `discoverGhidraInstallationOnPath`).
+  The image should set `GHIDRA_INSTALL_DIR` explicitly and not rely on this.
+- **Java**: `JAVA_HOME` (absolute) if set, otherwise `java` on `PATH`. It must be
+  a 64-bit **full JDK that includes `javac`**, whose major version lies within
+  the `application.java.min` / `application.java.max` range declared in the Ghidra
+  installation's own `application.properties` (**Source**: `GhidraInstallationPolicy.ts`;
+  **Docs**: `docs/getting-started/installation.md`). A JRE-only package is not
+  enough.
+- **Native decompiler**: `Ghidra/Features/Decompiler/os/linux_x86_64/decompile`
+  (or the `build/os/...` equivalent) must exist and match the host
+  (**Source**). Whether the official x86_64 release archive ships it is
+  **UNVERIFIED** (REA's docs say only that Linux ARM64 may need a manual build).
+- Discovery is read-only and does not execute the Ghidra launcher (**Docs**).
+
+### 2.3 Ghidra release and JDK
+
+- REA 6.9.0 verifies against **Ghidra 12.1.4** and **JDK 21**
+  (`SUPPORTED_GHIDRA_VERSION`, `SUPPORTED_GHIDRA_JAVA_MAJOR`; **Source**). Any
+  Ghidra 12.x from 12.1 upward is admitted, but a build other than 12.1.4 runs
+  with an "unverified build" limitation recorded on the session (**Source**).
+- REA's docs state that 12.1 releases require JDK 21 or newer, that Ghidra 12.2
+  declares JDK 25 or newer, and that neither sets a maximum (**Docs**). That
+  agrees with the brief, but it is REA's statement about Ghidra, not Ghidra's
+  own: **UNVERIFIED** against Ghidra's release notes or its
+  `application.properties` (task 4.1).
+- The release URL and SHA-256 for Ghidra 12.1.4 are **UNVERIFIED** (task 4.1).
+  The pin that REA verified is 12.1.4 with JDK 21; choosing it is task 4.1's job.
+
+### 2.4 Ghidra heap
+
+- REA launches Ghidra's JVM with `-Xmx${GHIDRA_HEADLESS_MAXMEM || GHIDRA_MAXMEM || "2G"}`,
+  appended after the VM arguments from Ghidra's own launch support, so it wins
+  (**Source**: `GhidraJavaLaunch.ts`; **Docs**). The default is `2G`. The value
+  must be a JVM heap size such as `512M` or `2G`; an invalid value makes Java
+  fail to start (**Docs**).
+- REA **blanks** `_JAVA_OPTIONS`, `JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS` and
+  `GHIDRA_JAVA_OPTIONS` inherited from its caller (**Source**:
+  `ghidraJavaEnvironment`; **Docs**: "Custom flags injected through these
+  variables are not supported configuration").
+- Consequence for design D10: of the three candidate mechanisms, **a
+  `JAVA_TOOL_OPTIONS=-Xmx…` scoped to the child cannot work** (it is cleared),
+  and editing `MAXMEM` in `analyzeHeadless` would be overridden by the later
+  `-Xmx`. The mechanism REA supports is to give each REA child
+  `GHIDRA_HEADLESS_MAXMEM`, so `GHIDRA_MAX_HEAP` maps onto that variable in the
+  child's environment. That the running Ghidra JVM then reports the expected
+  maximum heap is **UNVERIFIED** until task 4.4 runs it.
+- The heap limit does not bound total memory: the Node process, the JVM outside
+  its heap and Ghidra's native decompiler processes (their number follows the
+  available CPUs) sit on top of it (**Docs**). Memory sizing must be
+  `MAX_SESSIONS` times heap plus that overhead.
+
+### 2.5 Ghidra startup timeout
+
+`REA_GHIDRA_STARTUP_TIMEOUT_MS` is read from REA's own process environment
+(**Ran**, by asking REA's `inspect_analysis_settings` tool for
+`ghidra.startup_timeout_ms`):
+
+| Environment | Effective value | Source reported |
+|---|---|---|
+| unset | `330000` ms | `default` |
+| `REA_GHIDRA_STARTUP_TIMEOUT_MS=600000` | `600000` ms (`launch_value` too) | `setting` |
+| `REA_GHIDRA_STARTUP_TIMEOUT_MS=abc` | no value; `configuration_invalid`: "Expected an integer from 1 to 2147483647 ms" | n/a |
+
+- It applies at the next Ghidra startup, and the accepted range is 1 to
+  2,147,483,647 ms (**Ran**). The 330 s default is well above the roughly 100 s
+  idle timeout of the tunnel, so the gateway's keep-alives are required.
+- **An invalid value does not stop REA from starting.** `abc`, `0` and
+  `2147483648` all initialized and listed tools (**Ran**); the error surfaces
+  only when the setting is inspected or used (**Ran** for `abc`; `0` and
+  `2147483648` were not inspected). Passing the variable through unchanged, as
+  the `mcp-http-gateway` spec says, therefore means a bad value shows up as a
+  tool-call error and not as a startup failure.
+
+### 2.6 Where REA writes
+
+- **At idle, nothing**: no files under `HOME` or the working directory after
+  `initialize` + `tools/list`, `rea doctor`, `rea setup --dry-run`, or an HTTP
+  session (**Ran**).
+- **Ghidra session state** is placed under a private session root. The root is
+  `os.tmpdir()` (so it follows `TMPDIR`); when that path has a dot-prefixed
+  element, REA falls back to `/tmp`, because Ghidra aborts on project paths
+  with such an element (**Source**: `GhidraSessionRoot.ts`). The Ghidra child is
+  given `HOME`, `TMPDIR`, `XDG_CACHE_HOME`, `XDG_CONFIG_HOME` and
+  `XDG_DATA_HOME` pointing at private directories under it, and
+  `-Duser.home` / `-Djava.io.tmpdir` to match (**Source**: `GhidraLauncher.ts`).
+  For the image this means a writable temp directory **without a dot-prefixed
+  path element** (for example `/tmp`, or `/work/tmp` but not `/work/.tmp`) is
+  required, and Ghidra's own user directories need not be placed under `/work`
+  as D9 assumes. The actual behaviour with a read-only root filesystem is
+  **UNVERIFIED** (task 4.6).
+- **Tool outputs** go where the caller points. Tools that export or extract take
+  a path, for example `decompile_all` ("Write every function's pseudocode into a
+  directory and return a manifest"), `extract_artifact` and `export_web_scripts`
+  ("into an absent directory"). 24 of the 255 tool names contain
+  export/extract/write/save/capture/evidence, and 7 of those are read-only
+  `inspect_*` / `compare_*` tools, so at most 17 are candidates for writing
+  (**Ran**: tool list; **Docs**: CLI help). With only `/work` writable, a call
+  that targets another path will fail.
+  Which tools accept which paths, and whether any are confined to a root, was
+  not audited: **UNVERIFIED**.
+- **Read-only inputs**: REA's docs say it never writes to an APK it analyzes
+  (**Docs**). Whether Ghidra's import of a binary from a read-only `/samples`
+  works is **UNVERIFIED** (task 4.6). `REA_GHIDRA_PROJECT_PATH` and
+  `REA_GHIDRA_CHECKPOINT_DIR` exist (**Source**, by name); their semantics were
+  not examined.
+
+### 2.7 Limits that touch the relay
+
+From REA's limit inventory (**Docs**, `docs/design/rea-limit-inventory.md`):
+
+- `REA_MCP_MAX_RESPONSE_BYTES` defaults to 10 MiB ("Stdio receive buffer and the
+  paired client buffer"), so a single tool result can be that large. The relay
+  (task 3.11) must not impose a smaller per-message limit.
+- Startup budgets: `REA_MCP_INITIALIZE_BUDGET_MS` 15000, `REA_MCP_FIRST_CATALOG_BUDGET_MS`
+  20000, `REA_MCP_TOOLS_LIST_BUDGET_MS` 5000. Observed `initialize` took about 0.3 s
+  (**Ran**).
