@@ -23,6 +23,21 @@ Findings about REA were gathered against:
 | Runtime | Node 22.23.4, Linux x86_64 |
 | Date | 2026-11-13 |
 
+## Summary: the prerequisite gate (task 2.3)
+
+**Result: pass.** REA runs as a standalone stdio MCP server, so work continues.
+The exact launch command, for `rea-agents@6.9.0` on Node 22.23.4 or newer in the
+admitted ranges (see 2.1), is:
+
+```
+node <package-root>/scripts/rea.mjs mcp
+```
+
+It completed an MCP `initialize` and `tools/list` over stdio (255 tools). Section 1
+has the evidence, section 2 the runtime facts, section 3 what they change in the
+OpenSpec artifacts, and section 4 everything still **UNVERIFIED** plus the open
+questions.
+
 ## 1. REA launch discovery
 
 ### 1.1 Result
@@ -286,3 +301,90 @@ From REA's limit inventory (**Docs**, `docs/design/rea-limit-inventory.md`):
 - Startup budgets: `REA_MCP_INITIALIZE_BUDGET_MS` 15000, `REA_MCP_FIRST_CATALOG_BUDGET_MS`
   20000, `REA_MCP_TOOLS_LIST_BUDGET_MS` 5000. Observed `initialize` took about 0.3 s
   (**Ran**).
+
+## 3. Consequences for the OpenSpec change
+
+None of the findings above blocks the change, but several contradict or refine
+what `proposal.md` and `design.md` assume. **These edits have not been made**:
+they change planning artifacts, so they are listed here for the maintainer to
+accept (for example through `openspec-update-change`) before the later tasks
+rely on them.
+
+1. **`proposal.md`, "Why"**: it says REA's documentation describes no network
+   mode. REA 6.9.0 has `rea mcp --http` (section 1.5). The gateway is still
+   needed, but the sentence is stale.
+2. **`design.md` D10 (heap)**: replace the three candidates with the one that
+   works: map `GHIDRA_MAX_HEAP` to `GHIDRA_HEADLESS_MAXMEM` in each REA child's
+   environment (2.4). `JAVA_TOOL_OPTIONS` is blanked by REA and an `analyzeHeadless`
+   edit is overridden.
+3. **`design.md` D9 (image)**:
+   - The JDK must be a full JDK that provides `javac`, not a JRE (2.2).
+   - The Node 24 base must be 24.22.1 or newer (2.1).
+   - Ghidra's per-session state goes under `TMPDIR` or `/tmp`, so the image
+     needs a writable temp directory with no dot-prefixed path element; placing
+     `HOME` and Ghidra user directories under `/work` is not what REA does (2.6).
+4. **`design.md` D8 and task 3.11 (spawning REA)**: spawn `process.execPath` with
+   the resolved `scripts/rea.mjs` and the single argument `mcp`, with no shell and
+   no `npx` (1.2). `PATH` and `HOME` are enough to initialize and list tools
+   (**Ran**). For Ghidra analysis the child also needs `GHIDRA_INSTALL_DIR` and a
+   JDK via `JAVA_HOME` or `PATH`, and may be given `TMPDIR`,
+   `GHIDRA_HEADLESS_MAXMEM` and `REA_GHIDRA_STARTUP_TIMEOUT_MS` (**Source**; not
+   run, as Ghidra was unavailable). The `REA_MCP_API_KEY*` variables must be absent.
+5. **`specs/mcp-http-gateway`, "Analysis-engine settings passthrough"**: the
+   "Heap setting applied" scenario is achievable as written, but the spec is
+   silent on the value's format. An invalid heap value makes Java fail to start
+   (2.4) and an invalid startup timeout fails only on use (2.5), so consider
+   stating that `GHIDRA_MAX_HEAP` must be a JVM heap size and is validated at
+   gateway startup under the existing "unparsable value" rule.
+6. **`design.md` "Unverified assumptions"**: update the list as in section 4.
+
+## 4. Unverified assumptions and open questions
+
+### 4.1 Resolved by task 2.x
+
+| Assumption in the change design | Outcome |
+|---|---|
+| REA can be started as a standalone stdio MCP server, and with what command | Yes: `node <package-root>/scripts/rea.mjs mcp` (**Ran**) |
+| How REA locates Ghidra | `GHIDRA_INSTALL_DIR`, then a launcher on `PATH` (**Source**; **Ran** for the unset case) |
+| Which mechanism sets Ghidra's maximum heap | `GHIDRA_HEADLESS_MAXMEM`, then `GHIDRA_MAXMEM`, then `2G` (**Source**) |
+| `REA_GHIDRA_STARTUP_TIMEOUT_MS` is read from the environment | Yes (**Ran**), default 330000 ms |
+| REA supports Node 24 | Only from 24.22.1 (**Ran**: admission check); actual behaviour on Node 24 is still **UNVERIFIED** |
+
+### 4.2 Still UNVERIFIED
+
+Each item names the task that should close it.
+
+1. Ghidra 12.1.4 download URL and SHA-256, and its declared JDK range from
+   Ghidra's own release notes or `application.properties` (task 4.1).
+2. That the official Linux x86_64 Ghidra archive ships the native decompiler (4.1, 4.6).
+3. Debian bookworm package availability and versions for a full JDK 21, `tshark`
+   4.x, `procps`, `binutils`, `tini` and `rizin`, and the Temurin fallback (4.2).
+4. What the `node:24-*` base tag resolves to, and REA's behaviour on Node 24
+   (4.2, 4.3, 6.1).
+5. That the Ghidra JVM reports the expected maximum heap when
+   `GHIDRA_HEADLESS_MAXMEM` is set (4.4).
+6. REA and Ghidra with a read-only `/samples`, a read-only root filesystem and a
+   non-root uid, including the temp-directory behaviour in 2.6 (4.6).
+7. What a tool call returns when its analysis engine is missing (4.6, 8.3).
+8. REA's stdio behaviour when stdin closes or `SIGTERM` arrives **while a request
+   is in flight**. Only the idle case was observed (exit `0` on EOF). In HTTP mode,
+   `SIGTERM` exited `143` (3.13, 3.14).
+9. Which REA tools write to which paths, and whether any are confined to a root (8.3).
+10. That the SDK's streamable HTTP transport permits SSE comment frames and
+    forced-SSE responses (3.6).
+11. unRAID / Community Apps template rules: attribute names, advanced display mode,
+    `ca_profile.xml`, icon size (5.1).
+12. That the Claude custom-connector UI accepts a static request header, and the
+    exact Cloudflare tunnel idle timeout (7.3, 8.3).
+
+### 4.3 Open questions
+
+The seven in the change's `design.md` stand. The discovery adds:
+
+1. **Gateway transport to the child.** REA's own HTTP mode makes proxying to a
+   per-session `rea mcp --http` child possible in addition to the stdio relay of
+   D1/D2. The stdio relay remains the default; task 2.4 decides.
+2. **Ghidra pin.** 12.1.4 with JDK 21 is the combination REA verifies; newer 12.x
+   releases are admitted with an "unverified build" limitation, and 12.2
+   reportedly needs JDK 25. Should the image pin the verified pair? Recommended:
+   yes, decided in task 4.1.
