@@ -8,7 +8,7 @@ Ask the maintainer before pushing or publishing to GHCR.
 - [ ] 1.1 Create `CLAUDE.md` containing the five hard requirements and the process rules verbatim from `openspec/config.yaml`; verify by reading it back against the brief
 - [ ] 1.2 Add `.env.example` listing every supported variable with `REA_MCP_API_KEY=` empty; verify no line carries a value that resembles a key
 - [ ] 1.3 Confirm `.gitignore` covers `.env`, `*.pcap`, `*.pcapng`, `samples/`, `work/`, `*.gpr`, `*.rep`, `*.tns`, and TI installers; verify with `git check-ignore` on one path per pattern
-- [ ] 1.4 Add `.gitleaks.toml` (default rules, no broad allowlists) and `.pre-commit-config.yaml` with the gitleaks hook; verify the hook rejects a staged throwaway credential-shaped string and passes on the clean tree
+- [x] 1.4 Add `.gitleaks.toml` (default rules, no broad allowlists) and `.pre-commit-config.yaml` with the gitleaks hook; verify gitleaks rejects a staged throwaway credential-shaped string and passes on the clean tree
 
 ## 2. REA launch discovery (gate)
 
@@ -56,7 +56,9 @@ Ask the maintainer before pushing or publishing to GHCR.
 
 ## 6. CI
 
-- [ ] 6.1 Add `.github/workflows/ci.yml` jobs for lint, typecheck, and tests on Node 24; verify they pass on a branch run
+- [x] 6.0 Add the CI skeleton ahead of the code: `ci.yml` with `secrets` (gitleaks, full history), `hygiene` (`scripts/check_hygiene.sh`), `openspec` (strict validation) and the `gate` job, Dependabot for actions, a PR template, and the importable ruleset `.github/rulesets/main.json`; verify each job passes on a pull request
+- [ ] 6.0a Maintainer imports `.github/rulesets/main.json` under Settings → Rules → Rulesets and confirms a direct push to `main` is rejected
+- [ ] 6.1 Add `.github/workflows/ci.yml` jobs for lint, typecheck, and tests on Node 24; add each to `gate`'s `needs`; verify they pass on a branch run
 - [ ] 6.2 Add the gitleaks job scanning full history (`fetch-depth: 0`) and the template XML check job; verify both pass and that each fails on a seeded violation in a scratch branch
 - [ ] 6.3 Add the image build job and run the smoke-test script from 4.7 against the built image; verify on a branch run
 - [ ] 6.4 Add GHCR publishing on `main` and version tags using the workflow token with least-privilege `permissions`, lowercase image name, and no stored secrets; **get maintainer approval before this job is enabled or first runs**

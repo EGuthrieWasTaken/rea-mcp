@@ -1,0 +1,95 @@
+name: CI
+
+# openspec:ci-gate#pull-request-gate. Trigger is `pull_request`, never
+# `pull_request_target`: fork pull requests must never see secrets.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # openspec:secret-hygiene#automated-secret-scanning: gitleaks over the full history.
+  # The binary is pinned by version and verified by SHA-256 before it runs.
+  secrets:
+    name: secrets
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GITLEAKS_VERSION: "8.18.4"
+      GITLEAKS_SHA256: "ba6dbb656933921c775ee5a2d1c13a91046e7952e9d919f9bac4cec61d628e7d"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks (pinned, hash-verified)
+        run: |
+          curl -sSfL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/gitleaks"
+          tar -xzf gitleaks.tar.gz -C "$RUNNER_TEMP/gitleaks" gitleaks
+          rm gitleaks.tar.gz
+          echo "$RUNNER_TEMP/gitleaks" >> "$GITHUB_PATH"
+      - name: Scan every commit reachable from this ref
+        run: gitleaks detect --source . --config .gitleaks.toml --redact --no-banner --verbose
+
+  # openspec:secret-hygiene: nothing under samples/ or work/, no captures, Ghidra projects,
+  # TI files or other binaries are tracked, and .env.example carries no key.
+  hygiene:
+    name: hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: scripts/check_hygiene.sh
+
+  # OpenSpec specs and change proposals. Uses the runner's preinstalled Node (OpenSpec needs
+  # >= 20.19); the package version is pinned so a new OpenSpec release cannot change the gate.
+  openspec:
+    name: openspec
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      OPENSPEC_TELEMETRY: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: npx --yes @fission-ai/openspec@2.0.0 validate --all --strict
+
+  # Jobs still to come as the code lands (openspec change bootstrap-rea-mcp-gateway, group 6):
+  # lint, typecheck, test, unraid-template, image build + smoke test. Each must be added to
+  # `needs:` below when it is added here.
+
+  # ---- The required check: depends on every job above, tolerates skips ----
+  # openspec:ci-gate#branch-protection-and-the-gate-job
+  gate:
+    name: gate
+    if: always()
+    needs: [secrets, hygiene, openspec]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Check that every required job succeeded or was skipped
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+
+          needs = json.loads(os.environ["NEEDS"])
+          bad = {
+              name: info["result"]
+              for name, info in needs.items()
+              if info["result"] not in ("success", "skipped")
+          }
+          if bad:
+              print("The following required jobs did not succeed:", bad)
+              raise SystemExit(1)
+          print("All required jobs succeeded or were skipped.")
+          PY
