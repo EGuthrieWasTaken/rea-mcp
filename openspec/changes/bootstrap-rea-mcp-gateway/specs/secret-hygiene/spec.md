@@ -60,9 +60,9 @@ NOT allowlist paths or patterns broadly enough to hide a real key.
 ### Requirement: No third-party software under analysis
 The repository and the image build SHALL NOT bundle, download, or commit TI
 software or any other third-party binaries intended as analysis targets.
-Third-party tooling the product depends on (Ghidra, `rea-agents`, distribution
-packages) SHALL be fetched at build time from pinned sources and SHALL NOT be
-committed.
+Third-party tooling the product depends on (Ghidra, a JDK where the base
+distribution packages none, `rea-agents`, distribution packages) SHALL be fetched
+at build time from pinned sources and SHALL NOT be committed.
 
 #### Scenario: No committed binaries
 - **WHEN** the tracked files are listed
@@ -70,4 +70,4 @@ committed.
 
 #### Scenario: Build fetches only pinned tooling
 - **WHEN** the Dockerfile's network fetches are enumerated
-- **THEN** they consist only of distribution packages, the pinned `rea-agents` install, and the pinned, hash-verified Ghidra archive
+- **THEN** they consist only of distribution packages, the pinned `rea-agents` install, the pinned, hash-verified Ghidra archive, and, because the base distribution packages no JDK of the required major version, the pinned, hash-verified JDK archive
