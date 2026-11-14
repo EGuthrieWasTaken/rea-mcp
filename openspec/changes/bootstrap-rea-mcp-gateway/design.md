@@ -50,10 +50,11 @@ decisions that shape the specs and tasks.
 
 ### D1. Thin custom gateway on `@modelcontextprotocol/sdk`
 
-Build a small TypeScript gateway using the official SDK: a
-`StdioClientTransport` towards each REA child and a
-`StreamableHTTPServerTransport` towards each HTTP client, with messages relayed
-between the two at the transport level.
+Build a small TypeScript gateway using the official SDK: a small stdio
+transport of our own towards each REA child (the SDK's `StdioClientTransport`
+fixes its own environment and shutdown sequence, so ours reuses only its framing
+helpers) and a `StreamableHTTPServerTransport` towards each HTTP client, with
+messages relayed between the two at the transport level.
 
 - **Why:** the three requirements that existing bridges must meet (header-auth
   middleware, one child per MCP session, keep-alives) are exactly the parts we
@@ -148,12 +149,17 @@ A per-stream timer writes an SSE comment (`: keep-alive`) whenever ~15 s pass
 without a write. The gateway forces SSE responses for requests (rather than a
 single buffered JSON response) so that there is a stream to keep alive.
 
-- **Fallback if the SDK transport does not expose the raw response for
-  comment frames:** wrap the `ServerResponse` passed to the transport. This is
-  checked in task 3.6 before the approach is committed to.
+- **Spike result (task 3.6): no wrapper is needed.** The SDK's streamable HTTP
+  transport answers a POST with an SSE stream by default and itself writes
+  `: keepalive` comment frames every `keepAliveMs` (default 15 s) while a request
+  is open. The gateway sets `keepAliveMs` and relies on it; a test pins that
+  behaviour against SDK upgrades (`docs/DESIGN.md`, section 7).
+- A notification reaches a request's stream only when it is sent with that
+  request's id; otherwise it belongs to the standalone GET stream. Progress
+  forwarding therefore maps progress tokens back to request ids (task 3.15).
 - The integration test uses a fake tool with a scaled clock (for example a
-  120 s call and 15 s interval scaled to 1.2 s and 150 ms) plus an injected
-  idle-timeout proxy that drops silent connections.
+  120 s call and 15 s interval scaled to 1.2 s and 150 ms, through `keepAliveMs`)
+  plus an injected idle-timeout proxy that drops silent connections.
 
 ### D8. REA launch command and child environment
 

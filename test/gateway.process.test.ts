@@ -1,0 +1,76 @@
+import { connect, createServer, type AddressInfo } from "node:net";
+import { afterEach, describe, expect, it } from "vitest";
+import { randomKey } from "./helpers/keys.js";
+import { freePort, GatewayProcess } from "./helpers/process.js";
+
+const running: GatewayProcess[] = [];
+afterEach(async () => {
+  await Promise.all(running.splice(0).map((gateway) => gateway.kill()));
+});
+
+const start = (env: Record<string, string>): GatewayProcess => {
+  const gateway = GatewayProcess.start(env);
+  running.push(gateway);
+  return gateway;
+};
+
+const connects = (port: number): Promise<boolean> =>
+  new Promise((resolve) => {
+    const socket = connect({ port, host: "127.0.0.1" });
+    socket.once("connect", () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.once("error", () => resolve(false));
+  });
+
+describe("the running gateway process", () => {
+  it("serves /healthz, writes only JSON log lines, and exits 0 on SIGTERM", async () => {
+    const [port, key] = [await freePort(), randomKey()];
+    const gateway = start({ REA_MCP_API_KEY: key, PORT: String(port) });
+    await gateway.waitForLog((line) => line.message === "listening");
+
+    const response = await fetch(`http://127.0.0.1:${port}/healthz`);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('{"status":"ok"}');
+
+    expect(await gateway.stop("SIGTERM")).toEqual({ code: 0, signal: null });
+    expect(gateway.invalid).toEqual([]);
+    expect(gateway.lines.length).toBeGreaterThan(0);
+    for (const line of gateway.lines) {
+      expect(typeof line.time).toBe("string");
+      expect(typeof line.level).toBe("string");
+      expect(typeof line.message).toBe("string");
+    }
+    expect(JSON.stringify(gateway.lines)).not.toContain(key);
+    expect(gateway.stderr).toBe("");
+  });
+
+  it("exits 0 on SIGINT too", async () => {
+    const [port, key] = [await freePort(), randomKey()];
+    const gateway = start({ REA_MCP_API_KEY: key, PORT: String(port) });
+    await gateway.waitForLog((line) => line.message === "listening");
+    expect(await gateway.stop("SIGINT")).toEqual({ code: 0, signal: null });
+  });
+
+  it("does not open the port when startup is refused for want of a key", async () => {
+    const port = await freePort();
+    const gateway = start({ PORT: String(port) });
+    expect((await gateway.exited).code).toBe(1);
+    expect(gateway.lines.map((line) => line.message)).not.toContain("listening");
+    expect(await connects(port)).toBe(false);
+  });
+
+  it("exits non-zero and says why when the port is already taken", async () => {
+    const blocker = createServer();
+    await new Promise<void>((resolve) => blocker.listen(0, "127.0.0.1", resolve));
+    const port = (blocker.address() as AddressInfo).port;
+    try {
+      const gateway = start({ REA_MCP_API_KEY: randomKey(), PORT: String(port) });
+      expect((await gateway.exited).code).toBe(1);
+      expect(gateway.lines.at(-1)).toMatchObject({ level: "error", message: "cannot listen", reason: "EADDRINUSE", port });
+    } finally {
+      await new Promise<void>((resolve) => blocker.close(() => resolve()));
+    }
+  });
+});

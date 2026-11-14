@@ -638,3 +638,32 @@ relay does not have:
   either may differ, and nothing here was exercised.
 - What the SDK transports permit (SSE comment frames, forced-SSE responses, which
   SDK package to pin) is settled in tasks 3.1 and 3.6, not here.
+
+## 7. MCP SDK transport spike (task 3.6)
+
+Design D7 planned to write SSE keep-alive comments ourselves and, if the SDK
+transport hid the response object, to wrap it. The SDK was read and then driven
+with `@modelcontextprotocol/sdk` 1.32.2 (**Source**, **Ran**: `test/sdk-streamable-http.test.ts`):
+
+| Question | Result |
+|---|---|
+| Does a POST get an SSE response? | Yes. `enableJsonResponse` defaults to off, and the response is `text/event-stream` with an `Mcp-Session-Id` header (**Ran**). |
+| Can comment frames be written to the stream? | The transport does it itself: `: keepalive` every `keepAliveMs` while a request is open, on POST streams as well as the standalone GET stream. A 550 ms request at `keepAliveMs: 100` showed at least three, all before the result (**Ran**). No wrapper is needed. |
+| What is the default interval? | `DEFAULT_SSE_KEEP_ALIVE_MS` is 15000, the interval the spec asks for. A test asserts it so an SDK change is noticed (**Ran**). |
+| Where does a notification go? | Onto the request's stream only if sent with `relatedRequestId`. Without it, it belongs to the standalone GET stream, and is dropped when no client has opened one (**Ran**). A response is routed by its own id. |
+
+Consequences:
+
+- The gateway sets `keepAliveMs` (15 s) on each transport and does no keep-alive
+  writing of its own. Task 3.15 shrinks to configuration, a scaled-time test, and
+  forwarding.
+- The relay must map each request's `_meta.progressToken` to its JSON-RPC id and
+  send REA's progress notifications with that id. Notifications that carry no
+  token (logging, list-changed) go without one, to the standalone stream.
+- The SDK's own Host check (`allowedHosts`) compares the exact header, port
+  included, and case-sensitively. The spec wants a case-insensitive check that
+  ignores the port, so the gateway does its own (task 3.7) and leaves the SDK's off.
+- The SDK's `StdioClientTransport` supplies its own default environment and runs
+  its own shutdown sequence. The spec needs an exact environment, a process-group
+  kill and a configurable stdin-EOF grace, so task 3.11 spawns the child itself and
+  reuses only the SDK's framing helpers (`ReadBuffer`, `serializeMessage`).

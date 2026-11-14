@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { randomKey } from "./helpers/keys.js";
-import { parseLogLines, startGateway } from "./helpers/process.js";
+import { freePort, GatewayProcess, parseLogLines, startGateway } from "./helpers/process.js";
 
 const MESSAGE = "cannot start without a usable API key";
 
@@ -37,10 +37,15 @@ describe("gateway startup without a usable key", () => {
     expect(parseLogLines(result.stdout)[0]).toMatchObject({ message: MESSAGE, variable: "REA_MCP_API_KEY_FILE" });
   });
 
-  it("does not report a key problem for a valid key", () => {
-    const key = randomKey();
-    const result = startGateway({ REA_MCP_API_KEY: key });
-    expect(result.stdout).not.toContain(MESSAGE);
-    expect(`${result.stdout}${result.stderr}`).not.toContain(key);
+  it("does not report a key problem for a valid key, and keeps the key out of its output", async () => {
+    const [key, port] = [randomKey(), await freePort()];
+    const gateway = GatewayProcess.start({ REA_MCP_API_KEY: key, PORT: String(port) });
+    try {
+      await gateway.waitForLog((line) => line.message === "listening");
+      expect(gateway.lines.map((line) => line.message)).not.toContain(MESSAGE);
+    } finally {
+      await gateway.stop("SIGTERM");
+    }
+    expect(`${JSON.stringify(gateway.lines)}${gateway.stderr}`).not.toContain(key);
   });
 });
