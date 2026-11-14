@@ -1104,6 +1104,29 @@ Not checked: how the edit form renders the template (that `Mask` hides the key, 
 the eight variables, and `Required` blocks Apply). That is browser-side code in `CreateDocker.php`, and nothing
 was rendered here.
 
+### 10.8 The template check (task 5.4)
+
+`scripts/check_template.py` (Python 3 standard library only) checks `unraid/rea-mcp.xml` against the
+`unraid-template` spec and reports every violation: well-formed XML and the `Container` root; the ten metadata
+elements, with the spec's fixed values (lowercase repository, `Tools:`, project, support and raw links,
+`bridge`, not privileged, both hardening flags, no `WebUI`); all seven attributes on every `<Config>`; the
+required entries (port, masked empty required key, `ro` samples with no default, `/work` default); the eight
+advanced variables as advanced entries whose defaults equal `DEFAULT_ENV` in `src/config.ts`, which it reads
+from the source so the two cannot drift; the checkpoint variable off by default and its description; no
+key-like string, private key, host other than public GitHub and GHCR, or host path other than the appdata
+default; and that the icon is a valid, 256 by 256, single-frame PNG.
+
+`--self-test` copies the template, icon and `config.ts` to a scratch directory, makes one deliberate
+violation, and requires the checker to reject it, 31 times (**Ran**, 2026-11-14): malformed XML, a wrong
+version, a missing or empty element, an uppercase repository, a wrong category or link, `Privileged` true, a
+host network, a missing `--cap-drop=ALL`, a `WebUI`, an API key with a default (a random key-shaped string made
+at run time, so no literal is committed), an unmasked or optional key, a writable or defaulted `/samples`, a
+changed `/work` default, a `<Config>` without `Mask`, a missing or non-advanced variable, a default changed on
+either the template side or the gateway side, checkpointing on by default, a checkpoint description without
+`/work/checkpoints` or without the warning, a link to another host, a user-specific host path, and an icon that
+is truncated, has a bad CRC, is animated, or is missing. It also requires the unmodified template to pass and
+the command to exit 1, naming the problem, on a broken copy. All 31 were rejected and the real template passes.
+
 ## 11. Image build and verification (tasks 4.3 to 4.7)
 
 Gathered on 2026-11-14 on the maintainer's unRAID host (Docker Engine 29.8.2, BuildKit
