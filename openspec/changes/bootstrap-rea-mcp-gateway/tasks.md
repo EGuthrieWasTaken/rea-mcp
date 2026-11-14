@@ -23,7 +23,7 @@ Ask the maintainer before pushing or publishing to GHCR.
 - [x] 3.2 Implement config loading for all environment variables with defaults and startup validation; unit-test defaults and that an unparsable value exits non-zero naming the variable
 - [x] 3.3 Implement key loading from `REA_MCP_API_KEY`, `REA_MCP_API_KEY_FILE`, and `REA_MCP_API_KEYS`, with startup refusal; unit-test no key, 31-character key, one weak key among several, unreadable file, `*_FILE` with trailing newline, and source union
 - [x] 3.4 Implement digest-based constant-time key verification that evaluates every accepted key; unit-test missing, wrong, right, multi-key, length mismatch, and that all comparisons run
-- [ ] 3.5 Implement the JSON logger with an explicit field allowlist and `LOG_LEVEL` filtering; unit-test that no headers or key material are emitted at `debug` and that level filtering works
+- [x] 3.5 Implement the JSON logger with an explicit field allowlist and `LOG_LEVEL` filtering; unit-test that no headers or key material are emitted at `debug` and that level filtering works
 - [ ] 3.6 Implement the HTTP server with `/healthz`, 404 for unknown paths, 405 for unsupported methods, and confirm the SDK transport allows SSE comment frames and forced-SSE responses (spike); test that `/healthz` returns exactly `{"status":"ok"}` with no identifying headers
 - [ ] 3.7 Implement the `ALLOWED_HOSTS` check for `/mcp` with `/healthz` exempt; unit-test allowed, disallowed, port-suffixed, case-differing, and unset cases
 - [ ] 3.8 Implement failed-auth rate limiting with `TRUST_PROXY`-aware source IP resolution and a bounded store; unit-test limit reached, window expiry, per-IP isolation, successes not counted, and forwarding headers ignored versus honored

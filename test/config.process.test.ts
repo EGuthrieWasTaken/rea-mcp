@@ -1,15 +1,5 @@
-import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { BUILT_MAIN } from "./helpers/paths.js";
-
-// Start the real entry point with exactly one bad variable and nothing else, so
-// the result cannot depend on the environment of the test runner.
-const start = (env: Record<string, string>) =>
-  spawnSync(process.execPath, [BUILT_MAIN], {
-    env: { PATH: process.env.PATH ?? "", ...env },
-    encoding: "utf8",
-    timeout: 15_000,
-  });
+import { parseLogLines, startGateway } from "./helpers/process.js";
 
 describe("gateway startup with an unparsable setting", () => {
   const cases: [string, string][] = [
@@ -23,10 +13,12 @@ describe("gateway startup with an unparsable setting", () => {
   ];
 
   it.each(cases)("exits non-zero and names %s for %j", (name, value) => {
-    const result = start({ [name]: value });
+    const result = startGateway({ [name]: value });
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("invalid configuration");
-    expect(result.stderr).toContain(name);
-    expect(result.stdout).toBe("");
+    // Everything the gateway says is one JSON object per line on stdout.
+    expect(result.stderr).toBe("");
+    const lines = parseLogLines(result.stdout);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ level: "error", message: "invalid configuration", variable: name });
   });
 });
