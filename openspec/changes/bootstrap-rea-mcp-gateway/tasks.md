@@ -15,7 +15,7 @@ Ask the maintainer before pushing or publishing to GHCR.
 - [x] 2.1 In a throwaway directory outside the repo, inspect `rea-agents` (README, `--help`, `package.json` `bin`, entry files, and what `setup` would write, using a dry run or a scratch `HOME`) to determine the exact command that starts REA as a standalone stdio MCP server; verify by completing an MCP `initialize` and `tools/list` against it over stdio
 - [x] 2.2 Record how REA finds Ghidra, reads `REA_GHIDRA_STARTUP_TIMEOUT_MS`, which Node versions it supports, and where it writes output; mark anything not confirmed from source or by running it as UNVERIFIED
 - [x] 2.3 Write the findings and the exact launch command into `docs/DESIGN.md`; **if REA cannot run as a standalone stdio MCP server, stop here and report to the maintainer**
-- [ ] 2.4 Evaluate `mcp-proxy`, `supergateway`, and proxying to a per-session `rea mcp --http` child against the three criteria (header-auth middleware, one child per session, keep-alives) and record the gateway implementation choice in `docs/DESIGN.md`
+- [x] 2.4 Evaluate `mcp-proxy`, `supergateway`, and proxying to a per-session `rea mcp --http` child against the three criteria (header-auth middleware, one child per session, keep-alives) and record the gateway implementation choice in `docs/DESIGN.md`
 
 ## 3. Gateway
 

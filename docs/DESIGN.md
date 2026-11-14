@@ -566,3 +566,75 @@ docs; not run with Ghidra). Wait longer than D6's
 must still fit inside the container's stop timeout, so the longer grace needs a
 matching stop timeout in the template (open question 4). A killed child never
 corrupts a checkpoint, but loses edits made since the last save (2.8).
+
+## 6. Gateway implementation choice (task 2.4)
+
+**Decision: build the custom gateway** (D1 and D2 of the change design): a
+transport-level relay on the MCP SDK, with one stdio REA child per session. None
+of the alternatives meets the three criteria as shipped, and they leave most of
+the other requirements for us to write anyway.
+
+### 6.1 What was evaluated, and how
+
+- **`supergateway` 4.2.2** (MIT) and **`mcp-proxy` 6.10.0** (MIT, TypeScript).
+  Both were read from their published npm tarballs, because GitHub is not
+  reachable from the discovery environment. They were **not run** (**Source**).
+- **A per-session `rea mcp --http` child**, from the probes in section 1.5
+  (**Ran**) and REA's own spec (**Source**).
+- The Python package also called `mcp-proxy` was not evaluated: the image has no
+  Python runtime, and adding one is a cost the other options do not carry.
+
+### 6.2 Against the three criteria
+
+| Criterion | `supergateway` 4.2.2 | `mcp-proxy` 6.10.0 | Per-session `rea mcp --http` |
+|---|---|---|---|
+| **Header-key auth** before any MCP handling | Yes. `--apiKey` / `--apiKeyFile`, `X-API-Key` or `Authorization: Bearer`, several keys at once, SHA-256 digest compared with `timingSafeEqual` against every key, `401`, refuses to start with an empty key. No minimum key length. | Partly. One key (`--apiKey`, `X-API-Key`), and the compare returns early when lengths differ before `timingSafeEqual`. A custom `authenticate` callback exists, but only in the library API. | None. Any request is served; an arbitrary `x-api-key` is ignored (**Ran**). |
+| **One child per MCP session** | Yes, with `--outputTransport streamableHttp --stateful`: a child per session, ended with it, and `--sessionTimeout` for idle sessions. | **No in the CLI**: one upstream child "serves every session". The library's per-session `createServer` could do it, which means writing the gateway ourselves on top of its HTTP layer. | Possible, because we would spawn each child, but each one is then an unauthenticated loopback HTTP server. |
+| **SSE keep-alive** (comment about every 15 s) | **No.** Only TCP keep-alive (65 s) and MCP `ping` requests whose interval follows `--sessionTimeout`, clamped between 5 s and 300 s. | **No.** TCP keep-alive and a resumability event store; no comment frames found. | Not tested. Only `initialize` and `tools/list` were run in HTTP mode, so long calls were not observed. |
+
+### 6.3 Requirements neither package covers
+
+Each of these would be ours to write whichever package we started from:
+
+- A 32-character minimum key length, failed-auth rate limiting (`429`), and the
+  `Host` allowlist.
+- `/healthz` returning exactly `{"status":"ok"}` with `404` elsewhere.
+  `supergateway`'s health endpoints return plain `ok`. `mcp-proxy` serves `/ping`
+  and the legacy `/sse` and `/messages` routes, and enables CORS by default.
+- The `MAX_SESSIONS` cap with `503` and `Retry-After`.
+- A per-session working directory.
+- **Spawning REA safely.** `supergateway` starts children with `shell: true` and
+  the gateway's whole environment, and `mcp-proxy` passes `process.env` through.
+  Either would hand `REA_MCP_API_KEY*` to every child, which the `api-key-auth`
+  spec forbids. We need no shell and an allowlisted environment (D8).
+- **Termination.** `supergateway` signals the child's process group with
+  `SIGTERM` and `SIGKILL` after a fixed 5 s, with no stdin-EOF step and no longer
+  grace for checkpointing. `mcp-proxy` has no group kill.
+
+### 6.4 Why not proxy to per-session `rea mcp --http` children
+
+It would replace the stdio relay with an HTTP reverse proxy and add problems the
+relay does not have:
+
+- **Cross-talk.** Every child listens on loopback without authentication, so one
+  session's REA (or anything else in the container) can reach another's. Stdio
+  pipes are private to the parent.
+- **REA's own gates.** It validates `Host` and `Origin` on loopback binds, so the
+  gateway must rewrite them; it must also allocate ports and parse the
+  announcement line from stderr.
+- **Keep-alives.** Comment frames would have to be injected into a proxied
+  stream, which is the same work as in the relay but with a hand-written proxy
+  around it.
+- **Stability.** REA keeps stdio as its stable surface: registrations,
+  `rea mcp doctor` and `server.json` stay stdio, while HTTP mode is opt-in and
+  newer (**Source**, section 1.5).
+
+### 6.5 What is borrowed, and caveats
+
+- Borrowed as ideas, not code: `supergateway`'s digest-then-`timingSafeEqual`
+  over every key (the same as D4), and its per-session child in its own process
+  group.
+- The evidence is the source of these two versions only. A later release of
+  either may differ, and nothing here was exercised.
+- What the SDK transports permit (SSE comment frames, forced-SSE responses, which
+  SDK package to pin) is settled in tasks 3.1 and 3.6, not here.
