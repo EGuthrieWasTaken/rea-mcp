@@ -235,7 +235,7 @@ versions (**Ran**):
   `-Xmx`. The mechanism REA supports is to give each REA child
   `GHIDRA_HEADLESS_MAXMEM`, so `GHIDRA_MAX_HEAP` maps onto that variable in the
   child's environment. That the running Ghidra JVM then reports the expected
-  maximum heap is **UNVERIFIED** until task 4.4 runs it.
+  maximum heap was **UNVERIFIED** until task 4.4 ran it; it does (section 11.3).
 - The heap limit does not bound total memory: the Node process, the JVM outside
   its heap and Ghidra's native decompiler processes (their number follows the
   available CPUs) sit on top of it (**Docs**). Memory sizing must be
@@ -474,7 +474,8 @@ Each item names the task that should close it.
    **Partly resolved 2026-11-14**: `node --version` in the image reports v24.22.3
    (section 11.1). Ghidra-backed analysis on it remains (task 4.6).
 5. That the Ghidra JVM reports the expected maximum heap when
-   `GHIDRA_HEADLESS_MAXMEM` is set (4.4).
+   `GHIDRA_HEADLESS_MAXMEM` is set (4.4). **Resolved 2026-11-14**: it does, for four
+   settings (section 11.3; **Ran**).
 6. REA and Ghidra with a read-only `/samples`, a read-only root filesystem and a
    non-root uid, including the temp-directory behaviour in 2.6 (4.6).
 7. What a tool call returns when its analysis engine is missing (4.6, 8.3).
@@ -1103,5 +1104,37 @@ The gateway also checks `/work/sessions` itself (`src/main.ts`), so the same mis
 caught there if the entrypoint were bypassed; the entrypoint reports it first, and for `/tmp`
 as well, which the gateway does not check.
 
-What this section does not yet cover: the heap mapping, hardened-run checks with Ghidra, and
-the smoke-test script (tasks 4.4, 4.6, 4.7).
+### 11.3 The heap mapping (task 4.4)
+
+A real Ghidra was driven through the gateway: an MCP client opened
+`/samples/binaries/ghidra-class/switch` (read-only mount), called `binary_overview` and
+`list_procedures`, and then, with the session still open, `docker exec` read the Ghidra JVM's
+command line from `/proc/<pid>/cmdline` and its effective limits from `jcmd <pid> VM.flags`.
+The container ran as uid 99 with `--cap-drop=ALL --security-opt=no-new-privileges:true`. Each row
+is a separate container.
+
+| `GHIDRA_MAX_HEAP` | `GHIDRA_HEADLESS_MAXMEM` in the REA child | JVM command line | `jcmd` `MaxHeapSize` |
+|---|---|---|---|
+| unset | absent | `-Xmx2G` (REA's own default) | 2,147,483,648 (2048 MiB) |
+| `1536M` | `1536M` | `-Xmx1536M` | 1,610,612,736 (1536 MiB) |
+| `3g` | `3g` | `-Xmx3g` | 3,221,225,472 (3072 MiB) |
+| `768m` | `768m` | `-Xmx768m` | 805,306,368 (768 MiB) |
+
+Each value equals the heap requested, so the mapping of design D10 works as written. Also seen:
+
+- The JVM environment holds `JAVA_TOOL_OPTIONS=` set to nothing, which is REA blanking it
+  (section 2.4), so that variable could not have carried the heap setting.
+- The JVM is a child of the REA process, runs as uid 99, gid 100, and `jcmd VM.version` reports
+  `OpenJDK 64-Bit Server VM version 21.0.13+9-LTS`, the Temurin JDK of section 9.3. REA adds
+  `-Xshare:off -XX:ParallelGCThreads=2 -XX:CICompilerCount=2`.
+- Ghidra's per-session home and temporary directory are under `/tmp`:
+  `-Duser.home=/tmp/rea-ghidra-<random>/home` and `-Djava.io.tmpdir=/tmp/rea-ghidra-<random>/tmp`,
+  as section 2.6 said.
+- `open_binary` does not start Ghidra (it answered in 0.1 to 2 s); the first Ghidra-backed call
+  did, and `binary_overview` took about 11 s for this 16 KB binary.
+- The REA child's working directory was `/work/sessions/<session-id>`, and its environment held only
+  `GHIDRA_HEADLESS_MAXMEM`, `GHIDRA_INSTALL_DIR`, `HOME`, `JAVA_HOME` and `PATH` of the variables
+  checked (design D8, D13).
+
+What this section does not yet cover: the hardened-run checks beyond this scenario, the
+smoke-test script (tasks 4.6, 4.7).
