@@ -24,6 +24,7 @@ export interface HarnessOptions {
   initializeTimeoutMs?: number;
   maxBodyBytes?: number;
   keepAliveMs?: number;
+  maxSessions?: number;
   /** Variables the gateway's own environment holds, from which the child env is built. */
   gatewayEnv?: Record<string, string>;
 }
@@ -56,6 +57,7 @@ export const startHarness = async (options: HarnessOptions = {}): Promise<Harnes
     ...(options.initializeTimeoutMs === undefined ? {} : { initializeTimeoutMs: options.initializeTimeoutMs }),
     ...(options.maxBodyBytes === undefined ? {} : { maxBodyBytes: options.maxBodyBytes }),
     ...(options.keepAliveMs === undefined ? {} : { keepAliveMs: options.keepAliveMs }),
+    ...(options.maxSessions === undefined ? {} : { maxSessions: options.maxSessions }),
   });
   const limiter: FailureLimiter = createFailureLimiter();
   const server: Server = createGatewayServer({

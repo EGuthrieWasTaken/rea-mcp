@@ -35,6 +35,10 @@ export interface SessionManagerOptions {
   launch: ReaLaunch;
   /** Each session's working directory is created as <sessionsDir>/<session-id>. */
   sessionsDir: string;
+  /** MAX_SESSIONS: most sessions live at once, counting those still starting. Default 4. */
+  maxSessions?: number;
+  /** Retry-After, in seconds, sent when the cap is reached. Default 30. */
+  retryAfterSec?: number;
   /** SSE keep-alive interval for the SDK transport. Default 15 s (spec: about 15 s). */
   keepAliveMs?: number;
   /** How long REA may take to answer `initialize`. Default 30 s. */
@@ -54,9 +58,16 @@ const errorCode = (error: unknown): string =>
   error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : "unknown error";
 
 /** A JSON-RPC error body with a generic message: it must never carry detail. */
-const jsonError = (res: ServerResponse, status: number, code: number, message: string, id: RequestId | null = null): void => {
+const jsonError = (
+  res: ServerResponse,
+  status: number,
+  code: number,
+  message: string,
+  id: RequestId | null = null,
+  headers: Record<string, string | number> = {},
+): void => {
   const body = JSON.stringify({ jsonrpc: "2.0", error: { code, message }, id });
-  res.writeHead(status, { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) });
+  res.writeHead(status, { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body), ...headers });
   res.end(body);
 };
 
@@ -93,12 +104,16 @@ export class SessionManager {
   private readonly launch: ReaLaunch;
   private readonly sessionsDir: string;
   private attempts = 0;
+  /** Sessions whose slot is reserved but which are not registered yet (still starting). */
+  private starting = 0;
 
   constructor(options: SessionManagerOptions) {
     this.logger = options.logger;
     this.launch = options.launch;
     this.sessionsDir = options.sessionsDir;
     this.options = {
+      maxSessions: options.maxSessions ?? 4,
+      retryAfterSec: options.retryAfterSec ?? 30,
       keepAliveMs: options.keepAliveMs ?? 15_000,
       initializeTimeoutMs: options.initializeTimeoutMs ?? 30_000,
       maxBodyBytes: options.maxBodyBytes ?? 16 * 1024 * 1024,
@@ -154,6 +169,36 @@ export class SessionManager {
   }
 
   private async create(req: IncomingMessage, res: ServerResponse, request: JSONRPCRequest, parsed: unknown): Promise<void> {
+    // Reserve the slot BEFORE anything asynchronous (and so before spawning): this check
+    // and the increment form one synchronous step, so concurrent initialize requests
+    // cannot overshoot the cap. Over the cap there is no eviction: the newcomer waits.
+    if (this.sessions.size + this.starting >= this.options.maxSessions) {
+      this.logger.warn("session cap reached", { count: this.options.maxSessions });
+      return jsonError(res, 503, -32000, "Service unavailable", request.id, { "Retry-After": this.options.retryAfterSec });
+    }
+    this.starting += 1;
+    let reserved = true;
+    // Called exactly once: when the session is registered (it then counts as live) or
+    // when starting it failed.
+    const release = (): void => {
+      if (!reserved) return;
+      reserved = false;
+      this.starting -= 1;
+    };
+    try {
+      await this.start(req, res, request, parsed, release);
+    } finally {
+      release();
+    }
+  }
+
+  private async start(
+    req: IncomingMessage,
+    res: ServerResponse,
+    request: JSONRPCRequest,
+    parsed: unknown,
+    release: () => void,
+  ): Promise<void> {
     const sessionId = randomUUID();
     const dir = join(this.sessionsDir, sessionId);
 
@@ -214,6 +259,7 @@ export class SessionManager {
     child.onexit = (exit) => this.childExited(session, exit);
 
     this.sessions.set(sessionId, session);
+    release(); // now it is counted as a live session, not as one that is starting
     this.logger.info("session started", { sessionId, pid: child.pid });
     try {
       await transport.start();

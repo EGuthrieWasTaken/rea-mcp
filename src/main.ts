@@ -69,7 +69,7 @@ async function main(): Promise<void> {
 
   // Only digests of the keys are kept from here on.
   const limiter = createFailureLimiter();
-  const sessions = new SessionManager({ logger, launch, sessionsDir });
+  const sessions = new SessionManager({ logger, launch, sessionsDir, maxSessions: config.maxSessions });
   const server = createGatewayServer({
     logger,
     verifier: createKeyVerifier(keys),
