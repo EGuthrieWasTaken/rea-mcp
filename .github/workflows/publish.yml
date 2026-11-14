@@ -1,0 +1,74 @@
+name: Publish image
+
+# openspec:ci-gate, change task 6.4 (bootstrap-rea-mcp-gateway).
+#
+# DISABLED ON PURPOSE. This publishes ghcr.io/eguthriewastaken/rea-mcp, and CLAUDE.md requires the maintainer's
+# approval before the package is created or published. So:
+#   - the only trigger is a manual `workflow_dispatch`, and the job below is switched off with `if: false`;
+#   - the automatic triggers (push to main, vX.Y.Z tags) are commented out.
+# To enable it, with the maintainer's approval: delete the `if: false` line, uncomment the `push:` trigger, then
+# set the package to public in GitHub (Packages, the package's settings) after the first publish, because a new
+# package starts private and the unRAID template pulls without credentials.
+#
+# It uses only the workflow's own token (no stored secrets) and the runner's Docker, so there is no third-party
+# action to pin. It builds, runs the same checks as the `image` job in ci.yml, and only then pushes.
+
+on:
+  workflow_dispatch:
+  # push:
+  #   branches: [main]
+  #   tags: ["v*.*.*"]
+
+# Nothing by default; the one job asks for what it needs.
+permissions: {}
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: publish
+    if: false # DISABLED: remove this line only when the maintainer approves publishing (task 6.4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write # the workflow token may push to this repository's own package, and nothing else
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Work out the image references for this ref
+        id: refs
+        env:
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+        run: |
+          refs="$(scripts/image_tags.sh "$REPO" "$REF" "$SHA")"
+          {
+            echo "refs<<EOF"
+            echo "$refs"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+      - name: Build the image
+        env:
+          REFS: ${{ steps.refs.outputs.refs }}
+        run: |
+          args=()
+          while IFS= read -r r; do args+=(-t "$r"); done <<<"$REFS"
+          docker buildx build --platform linux/amd64 -f docker/Dockerfile "${args[@]}" --load .
+      - name: A wrong Ghidra or JDK hash must fail the build
+        run: scripts/check_hash_pins.sh rea-mcp-hashcheck
+      - name: Smoke test the image that will be published
+        env:
+          REFS: ${{ steps.refs.outputs.refs }}
+        run: scripts/smoke_test.sh "$(head -n1 <<<"$REFS")"
+      - name: Log in to GHCR with the workflow token
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Push
+        env:
+          REFS: ${{ steps.refs.outputs.refs }}
+        run: |
+          while IFS= read -r r; do docker push "$r"; done <<<"$REFS"

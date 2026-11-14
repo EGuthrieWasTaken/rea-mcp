@@ -1357,3 +1357,28 @@ container was known to be running, so an early exit gave no message; and `docker
 - **Which of REA's roughly 250 tools write where.** Only `decompile_all` was checked.
 - **`TMPDIR` under a long per-session path** (item 19 of section 4.2).
 - **The upstream `verify:ghidra:checkpoints` script.**
+
+## 12. CI jobs written ahead of their first run (tasks 6.2 to 6.4)
+
+Written on 2026-11-14 but **not yet run on GitHub**: a workflow can only be verified by a pull request
+run, and pushing needs the maintainer's go-ahead. Tasks 6.2, 6.3 and 6.4 therefore stay unticked. What was
+checked locally, and what remains:
+
+| Piece | Checked here (**Ran**) | Still to do |
+|---|---|---|
+| `template` job in `ci.yml` | `scripts/check_template.py` passes and its self-test rejects all 31 seeded violations (section 10.8) | Run on a pull request; seed one violation on a scratch branch and see the job fail |
+| `image` job in `ci.yml` | The same Docker commands ran on this host: the build (section 11.1), `scripts/check_hash_pins.sh` (an altered Ghidra or JDK hash fails the build on the checksum and leaves no image) and `scripts/smoke_test.sh` (section 11.7) | Run on a runner |
+| `gate` | Parsed with the `yaml` package: every job other than `gate` is in its `needs` | Seeing it fail when a job fails |
+| `.github/workflows/publish.yml` | Parses; has no automatic trigger and a job switched off with `if: false`; empty top-level `permissions`, job-level `contents: read` and `packages: write`; no third-party action. `scripts/image_tags.sh` gives `latest` and `sha-<12>` for `main`, `X.Y.Z` and `sha-<12>` for a `vX.Y.Z` tag, and refuses every other ref and malformed input | Not to be enabled or run until the maintainer approves (task 6.4) |
+
+Design choices: the new jobs use the runner's own `docker` and `python3` and so add no third-party action
+to pin and no binary to hash-verify. The template job does not call `xmllint` (design D11 mentions it): the
+checker parses the XML strictly and its self-test includes a malformed file, so the runner needs no extra
+package. The tag policy in `scripts/image_tags.sh` is a proposal for open question 4 of the change's
+`design.md`. A new GHCR package starts private, so after the first publish the maintainer must make it public
+(decision of section 5.5) in GitHub's package settings.
+
+Also run once on a clean copy of this branch in a Node 24.22.3 container (as root): `npm run lint` and
+`npm run typecheck` clean, and `npm test` gave 358 passed and 1 skipped. The skip is
+`it.skipIf(process.getuid?.() === 0)` in `test/keys.test.ts`, which a root run skips.
+
