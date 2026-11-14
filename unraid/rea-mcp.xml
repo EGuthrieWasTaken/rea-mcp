@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>rea-mcp</Name>
+  <Repository>ghcr.io/eguthriewastaken/rea-mcp:latest</Repository>
+  <Registry>https://github.com/EGuthrieWasTaken/rea-mcp/pkgs/container/rea-mcp</Registry>
+  <Network>bridge</Network>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/EGuthrieWasTaken/rea-mcp/issues</Support>
+  <Project>https://github.com/EGuthrieWasTaken/rea-mcp</Project>
+  <Overview>A remote MCP server for reverse engineering. It serves REA (rea-agents) with Ghidra, tshark and objdump over HTTP, so Claude (a custom connector) and Claude Code can analyze files in the folder you mount at /samples. Every request needs the API key you set below, and the server will not start without a key of at least 32 characters. The container speaks plain HTTP: put it behind TLS, for example a Cloudflare Tunnel, before exposing it. It has no web page. Each session runs its own REA and Ghidra process, so size MAX_SESSIONS and GHIDRA_MAX_HEAP against your RAM. Only analyze software you are permitted to analyze.</Overview>
+  <Category>Tools:</Category>
+  <TemplateURL>https://raw.githubusercontent.com/EGuthrieWasTaken/rea-mcp/main/unraid/rea-mcp.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/EGuthrieWasTaken/rea-mcp/main/unraid/icon.png</Icon>
+  <ExtraParams>--security-opt=no-new-privileges:true --cap-drop=ALL</ExtraParams>
+  <Config Name="Port" Target="8080" Default="8080" Mode="tcp" Description="Port the MCP endpoint (/mcp) and the health check (/healthz) listen on." Type="Port" Display="always" Required="true" Mask="false">8080</Config>
+  <Config Name="API key" Target="REA_MCP_API_KEY" Default="" Mode="" Description="Required. A long random key, at least 32 characters, that clients send in the x-api-key header. Generate one with: openssl rand -hex 32. There is no default and the container will not start without one." Type="Variable" Display="always" Required="true" Mask="true"></Config>
+  <Config Name="Samples (read-only)" Target="/samples" Default="" Mode="ro" Description="Required. A dedicated folder that holds only the files you may analyze. It is mounted read-only; do not mount a share that holds anything else." Type="Path" Display="always" Required="true" Mask="false"></Config>
+  <Config Name="Work directory" Target="/work" Default="/mnt/user/appdata/rea-mcp" Mode="rw" Description="Where Ghidra output, per-session folders and the optional checkpoint folder go. It must be writable by uid 99, gid 100 (nobody:users), which the container runs as." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/rea-mcp</Config>
+  <Config Name="Max sessions" Target="MAX_SESSIONS" Default="4" Mode="" Description="Most sessions that can be open at once. Each has its own REA and Ghidra process; a request over the limit gets 503." Type="Variable" Display="advanced" Required="false" Mask="false">4</Config>
+  <Config Name="Session idle timeout (s)" Target="SESSION_IDLE_TIMEOUT_SEC" Default="900" Mode="" Description="Seconds without any request after which an idle session is ended. A call that is still running is never counted as idle." Type="Variable" Display="advanced" Required="false" Mask="false">900</Config>
+  <Config Name="Trust proxy" Target="TRUST_PROXY" Default="false" Mode="" Description="Set to true only behind a trusted proxy such as a Cloudflare Tunnel, so the client address is read from CF-Connecting-IP or X-Forwarded-For for the failed-login limit. Leave false when clients reach the container directly." Type="Variable" Display="advanced" Required="false" Mask="false">false</Config>
+  <Config Name="Allowed hosts" Target="ALLOWED_HOSTS" Default="" Mode="" Description="Comma-separated host names accepted in the Host header of /mcp requests, for example the tunnel's host name. Empty accepts any host. The health check is exempt." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="Ghidra max heap" Target="GHIDRA_MAX_HEAP" Default="" Mode="" Description="Maximum Java heap of each Ghidra process, for example 4G or 512M. Empty uses REA's default of 2G. Memory use is roughly Max sessions times this, plus overhead for each session." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="Ghidra startup timeout (ms)" Target="REA_GHIDRA_STARTUP_TIMEOUT_MS" Default="" Mode="" Description="Milliseconds Ghidra may take to start before REA gives up. Empty uses REA's default of 330000 (5.5 minutes)." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="Ghidra checkpoint directory" Target="REA_GHIDRA_CHECKPOINT_DIR" Default="" Mode="" Description="Off while empty. Set to /work/checkpoints to keep Ghidra's analysis of each binary across sessions and restarts. Read first: names and comments saved in one conversation appear in any later one that opens the same binary; only one live session can hold a given binary; targets that are not stock ELF, PE or Mach-O imports fail to open with Ghidra; nothing is ever deleted from it. Stopping a session is then given 30 seconds, so raise unRAID's Docker Stop Timeout (Settings, Docker) to at least 40 seconds, or REA may be killed while saving." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="Log level" Target="LOG_LEVEL" Default="info" Mode="" Description="One of debug, info, warn or error. Logs never contain request headers or keys at any level." Type="Variable" Display="advanced" Required="false" Mask="false">info</Config>
+</Container>

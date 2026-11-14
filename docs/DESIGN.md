@@ -1050,7 +1050,8 @@ not read: its address was not found in the pages fetched. What it would cover
   the starter icon's view box, which is a choice and not a guideline.
 - Whether a `--stop-timeout` in `ExtraParams` is honoured, and whether array stop
   and shutdown use the host's Docker Stop Timeout.
-- Whether the PID limit constrains several Ghidra sessions.
+- Whether the PID limit constrains several Ghidra sessions. Measured data are in section 11.5, and section
+  10.7 shows unRAID applies `--pids-limit 2048` by default; four concurrent sessions were not run.
 - Whether the two-factor requirement in the policy thread still applies.
 
 ### 10.6 The icon (task 5.2)
@@ -1064,6 +1065,44 @@ transparent while the centre is opaque. It is original: `scripts/make_icon.py` d
 (signed-distance functions, standard library only) and reproduces it byte for byte, so it contains no
 third-party artwork. That it resembles no one else's mark rests on that construction and a look at the
 picture; no trademark search was made. The template check of task 5.4 repeats the PNG checks in CI.
+
+### 10.7 The template (task 5.3)
+
+`unraid/rea-mcp.xml` follows the `unraid-template` spec: root `<Container version="2">`; `Name`, `Repository`
+(`ghcr.io/eguthriewastaken/rea-mcp:latest`), `Registry`, `Shell`, `Support`, `Project`, `Overview`, `Category`
+(`Tools:`), `TemplateURL` and `Icon` set; `Network` `bridge`; `Privileged` `false`; `ExtraParams`
+`--security-opt=no-new-privileges:true --cap-drop=ALL`; no `WebUI`. It has 12 `<Config>` entries, each with
+all nine attributes: the port, the masked empty required `REA_MCP_API_KEY`, `/samples` with `Mode="ro"` and
+no default, `/work` defaulting to `/mnt/user/appdata/rea-mcp`, and the eight advanced variables with
+`Display="advanced"`, whose defaults equal the gateway's (`DEFAULT_ENV` in `src/config.ts`; empty where the
+gateway has none). The checkpoint variable is empty, names `/work/checkpoints`, says non-stock targets fail to
+open, and tells the operator to raise the host's Docker Stop Timeout to at least 40 s (section 10.3).
+`xmllint --noout` accepts it, and it holds no key and no long hex string.
+
+**unRAID's own parser, run on this host** (**Ran**, 2026-11-14, unRAID 7.3.4): `xmlToCommand()` from the
+installed `dynamix.docker.manager/include/Helpers.php` was called read-only from a PHP stub (fake time zone, host
+name and network table; `$create_paths` false, so nothing was created). It builds this command from the template:
+
+| From the template | In dockerMan's `docker create` |
+|---|---|
+| `Name`, `Repository`, `Network` | `--name='rea-mcp'`, `--net='bridge'`, image `'ghcr.io/eguthriewastaken/rea-mcp:latest'` |
+| `ExtraParams` | `--security-opt=no-new-privileges:true --cap-drop=ALL`, appended unchanged |
+| Port 8080 `tcp` | `-p '8080:8080/tcp'` |
+| `/work` | `-v '/mnt/user/appdata/rea-mcp':'/work':'rw'` |
+| `/samples` once the user gives a path | `-v '<path>':'/samples':'ro'`; with no path it is left out, as the user must choose one |
+| The eight advanced variables | `-e` for each, an empty default being passed as an empty string |
+| `Icon` | `-l net.unraid.docker.icon=<url>` |
+| (not in the template) | `--pids-limit 2048`, which dockerMan adds itself from the host's `DOCKER_PID_LIMIT` (empty: 2048) |
+
+So an unRAID-installed container is limited to 2048 PIDs by default, which section 11.5's measurement (about
+94 PIDs per live Ghidra session on a 64-CPU host) leaves room for at the default of 4 sessions. The image was also
+run with exactly that environment, empty strings included (`GHIDRA_MAX_HEAP=`, `ALLOWED_HOSTS=`,
+`REA_GHIDRA_CHECKPOINT_DIR=` and so on): it became healthy, analysed a sample, and Ghidra ran with REA's default
+`-Xmx2G`, so a blank variable behaves as unset.
+
+Not checked: how the edit form renders the template (that `Mask` hides the key, `Display="advanced"` collapses
+the eight variables, and `Required` blocks Apply). That is browser-side code in `CreateDocker.php`, and nothing
+was rendered here.
 
 ## 11. Image build and verification (tasks 4.3 to 4.7)
 
