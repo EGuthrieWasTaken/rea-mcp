@@ -50,6 +50,7 @@ ghidra_*/
 # --- Node / TypeScript ---
 node_modules/
 dist/
+.test-build/
 build/
 coverage/
 *.tsbuildinfo

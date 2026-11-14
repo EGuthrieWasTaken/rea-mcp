@@ -20,7 +20,7 @@ Ask the maintainer before pushing or publishing to GHCR.
 ## 3. Gateway
 
 - [x] 3.1 Scaffold the Node 24 + TypeScript project (`package.json` with `"license": "GPL-3.0-only"`, lockfile, `tsconfig`, ESLint, test runner, exact-pinned `rea-agents` and `@modelcontextprotocol/sdk`); verify `npm run lint`, `typecheck`, and `test` all run
-- [ ] 3.2 Implement config loading for all environment variables with defaults and startup validation; unit-test defaults and that an unparsable value exits non-zero naming the variable
+- [x] 3.2 Implement config loading for all environment variables with defaults and startup validation; unit-test defaults and that an unparsable value exits non-zero naming the variable
 - [ ] 3.3 Implement key loading from `REA_MCP_API_KEY`, `REA_MCP_API_KEY_FILE`, and `REA_MCP_API_KEYS`, with startup refusal; unit-test no key, 31-character key, one weak key among several, unreadable file, `*_FILE` with trailing newline, and source union
 - [ ] 3.4 Implement digest-based constant-time key verification that evaluates every accepted key; unit-test missing, wrong, right, multi-key, length mismatch, and that all comparisons run
 - [ ] 3.5 Implement the JSON logger with an explicit field allowlist and `LOG_LEVEL` filtering; unit-test that no headers or key material are emitted at `debug` and that level filtering works
