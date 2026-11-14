@@ -1271,6 +1271,7 @@ message), so Ghidra's native decompiler, `demangler_gnu_v2_41` and the JVM all r
 | `inspect_pcap_capture` (tshark) | 34 packets, with `www.example.test`, `api.example.test`, `missing.example.test`, `/index.html`, `/api/v1/items`; TShark 4.0.17; `inspect_packet_capture` and `inspect_packet_fields` also answered |
 | `decompile_all` | Wrote 20 files under `/work/out-decompile` from the read-only `/samples`: directories `700`, files `600`, owner 99:100 |
 | `execute_rizin_command` (no Rizin in the image) | A normal result with `isError`, `code: capability_unavailable`, "Could not launch the selected rizin executable "rizin" (ENOENT)" and a remedy ("make that command available on PATH") |
+| `capture_process_scenario` | **Runs an arbitrary command inside the container**, as uid 99: `id` printed `uid=99(rea-mcp) gid=100(users)`, a `sh -c` wrote to `/tmp` and was refused on `/samples` ("Read-only file system"), and a Node one-liner made an outbound HTTPS request to a public host that returned 200. REA describes the tool as "not a sandbox". The gateway relays tools unfiltered (design D2), so a key holder has command execution in the container, write access to `/work` and `/tmp`, and the network; `docs/SECURITY.md` says so |
 | `search_android_classes` (no JADX) | `capability_unavailable`, "Target ... is elf; provide one standalone APK". It was given an ELF, so it does not show what an APK does without JADX |
 
 **A read-only root filesystem works.** With `--read-only --tmpfs /tmp` (Docker's default options,
