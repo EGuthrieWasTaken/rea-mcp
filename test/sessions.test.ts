@@ -112,6 +112,38 @@ describe("a session through the gateway, with a real MCP client", () => {
     await client.close();
   });
 
+  it("passes the checkpoint directory through, and withholds the five settings REA cannot combine with it", async () => {
+    const harness = await startHarness({
+      gatewayEnv: {
+        REA_GHIDRA_CHECKPOINT_DIR: "/work/checkpoints",
+        REA_GHIDRA_PROJECT_PATH: "/work/p.gpr",
+        REA_GHIDRA_SEED_FILE: "/work/seeds.tsv",
+        REA_GHIDRA_NATIVEAOT_JAR: "/work/x.jar",
+        REA_GHIDRA_LANGUAGE_ID: "x86:LE:64:default",
+        REA_GHIDRA_DISABLED_ANALYZERS: "Some Analyzer",
+      },
+    });
+    const { client } = await connectClient(harness);
+    const names = [
+      "REA_GHIDRA_CHECKPOINT_DIR",
+      "REA_GHIDRA_PROJECT_PATH",
+      "REA_GHIDRA_SEED_FILE",
+      "REA_GHIDRA_NATIVEAOT_JAR",
+      "REA_GHIDRA_LANGUAGE_ID",
+      "REA_GHIDRA_DISABLED_ANALYZERS",
+    ];
+    const seen = JSON.parse(textOf(await client.callTool({ name: "env", arguments: { names } }))) as Record<string, string>;
+    expect(seen).toEqual({ REA_GHIDRA_CHECKPOINT_DIR: "/work/checkpoints" });
+    await client.close();
+  });
+
+  it("does not pass a checkpoint directory when none is configured: checkpointing is off by default", async () => {
+    const harness = await startHarness();
+    const { client } = await connectClient(harness);
+    expect(textOf(await client.callTool({ name: "env", arguments: { names: ["REA_GHIDRA_CHECKPOINT_DIR"] } }))).toBe("{}");
+    await client.close();
+  });
+
   it("passes neither setting when neither is configured", async () => {
     const harness = await startHarness();
     const { client } = await connectClient(harness);

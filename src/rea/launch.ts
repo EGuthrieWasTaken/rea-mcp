@@ -17,8 +17,12 @@ export interface ReaLaunch {
  * The variables a REA child may inherit from the gateway, unchanged. A variable is passed
  * only if it is on this list AND set. In particular no `REA_MCP_API_KEY*` variable is
  * here, nor any other secret, nor the five REA settings that cannot be combined with a
- * checkpoint directory. REA_GHIDRA_STARTUP_TIMEOUT_MS is passed exactly as given: REA
- * validates it itself, and only when a Ghidra session starts.
+ * checkpoint directory (REA_GHIDRA_PROJECT_PATH, _SEED_FILE, _NATIVEAOT_JAR,
+ * _LANGUAGE_ID and _DISABLED_ANALYZERS: REA refuses to start a session when any is set
+ * beside REA_GHIDRA_CHECKPOINT_DIR). REA_GHIDRA_STARTUP_TIMEOUT_MS is passed exactly as
+ * given: REA validates it itself, and only when a Ghidra session starts.
+ * REA_GHIDRA_CHECKPOINT_DIR has no default: it reaches REA only if the operator set it,
+ * and the gateway has already checked that it is an absolute path.
  */
 export const CHILD_ENV_ALLOWLIST = [
   "PATH",
@@ -27,6 +31,7 @@ export const CHILD_ENV_ALLOWLIST = [
   "GHIDRA_INSTALL_DIR",
   "TMPDIR",
   "REA_GHIDRA_STARTUP_TIMEOUT_MS",
+  "REA_GHIDRA_CHECKPOINT_DIR",
 ] as const;
 
 export function childEnvironment(env: Environment): Record<string, string> {

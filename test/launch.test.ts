@@ -50,7 +50,16 @@ describe("childEnvironment", () => {
       "GHIDRA_INSTALL_DIR",
       "TMPDIR",
       "REA_GHIDRA_STARTUP_TIMEOUT_MS",
+      "REA_GHIDRA_CHECKPOINT_DIR",
     ]);
+  });
+
+  it("passes REA_GHIDRA_CHECKPOINT_DIR through unchanged when set, and never invents one", () => {
+    expect(childEnvironment({ REA_GHIDRA_CHECKPOINT_DIR: "/work/checkpoints" })).toEqual({
+      REA_GHIDRA_CHECKPOINT_DIR: "/work/checkpoints",
+    });
+    expect(childEnvironment({})).not.toHaveProperty("REA_GHIDRA_CHECKPOINT_DIR");
+    expect(childEnvironment({ REA_GHIDRA_CHECKPOINT_DIR: "" })).not.toHaveProperty("REA_GHIDRA_CHECKPOINT_DIR");
   });
 
   it("passes REA_GHIDRA_STARTUP_TIMEOUT_MS through exactly as given, valid or not", () => {
