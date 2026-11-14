@@ -1081,5 +1081,27 @@ The first build raised BuildKit's `FromPlatformFlagConstDisallowed` lint on a co
 | One ClientHello with SNI `api.example.test` | `203.0.113.30  api.example.test` (the `tls.handshake.type == 1` filter) |
 | One ping, id `0x0042` | Frames 33 and 34, `id=0x0042, seq=1/256`, ttl 64 and 56 |
 
-What this section does not yet cover: that the container starts and is healthy, the heap
-mapping, the entrypoint, and Ghidra running (tasks 4.4 to 4.7).
+### 11.2 The entrypoint check (task 4.5)
+
+`docker/entrypoint.sh` is the image's entrypoint, behind `tini`. It probes `/work` and `/tmp`
+by creating a file in each (which also catches read-only mounts and ACLs that `test -w`
+can miss), creates `/work/home` and `/work/sessions` at mode `700`, probes those two as well
+(they may already exist from a run as another user), and then `exec`s the command, so Node is
+tini's direct child. It reports a problem as one JSON object on stdout in the gateway's log
+shape (`time`, `level`, `message`, `path`, `reason`) and exits `1`. Every row below ran under
+`--cap-drop=ALL --security-opt=no-new-privileges:true` as uid 99.
+
+| Scenario | Result |
+|---|---|
+| `/work` is a bind mount owned by root, mode 755 | Error naming `/work` and the remedy (make the host directory writable by uid 99 and gid 100, "on unRAID, nobody:users"); exit `1`; nothing is left in the mount |
+| `/work` is writable but `/work/home` exists, owned by root, mode 700 | Error naming `/work/home`; exit `1` |
+| `--read-only` root filesystem with no `/tmp` mount | Error naming `/tmp`; exit `1` |
+| `/work` is a bind mount owned by 99:100, with a throwaway key | `home` and `sessions` appear in it, mode `700`, uid 99, gid 100; the gateway logs `listening`; the container is `healthy` 2 s after start with `--health-interval=2s`; `GET /healthz` gives `200` and `{"status":"ok"}`; `docker stop` exits `0` in 0.18 s |
+| No key, and a 31-character key | The gateway's refusal reaches the log through the entrypoint (`cannot start without a usable API key`, naming `REA_MCP_API_KEY`); exit `1`; the throwaway key does not occur in the output |
+
+The gateway also checks `/work/sessions` itself (`src/main.ts`), so the same mistake would be
+caught there if the entrypoint were bypassed; the entrypoint reports it first, and for `/tmp`
+as well, which the gateway does not check.
+
+What this section does not yet cover: the heap mapping, hardened-run checks with Ghidra, and
+the smoke-test script (tasks 4.4, 4.6, 4.7).

@@ -43,7 +43,7 @@ Ask the maintainer before pushing or publishing to GHCR.
 - [x] 4.2 Verify Debian bookworm package availability and versions for a full JDK (with `javac`), `tshark`, `procps`, `binutils`, `tini`, and `rizin`, and that the `node:24-bookworm-slim` tag resolves to Node 24.22.1 or newer; record results and any fallback (for example Temurin) in `docs/DESIGN.md`
 - [x] 4.3 Write `docker/Dockerfile` (multi-stage, `linux/amd64`, Ghidra stage with hash verification, runtime as `99:100`, `WORKDIR /work`, volumes, `tini`, Node-based `HEALTHCHECK`, `GHIDRA_INSTALL_DIR=/opt/ghidra`, writable `/tmp`, no dot-prefixed `TMPDIR`, no `rea-agents setup`); verify the build succeeds and fails when `GHIDRA_SHA256` is altered
 - [ ] 4.4 Verify the `GHIDRA_MAX_HEAP` → `GHIDRA_HEADLESS_MAXMEM` mapping reaches Ghidra: check the Ghidra JVM's effective max heap in a running container
-- [ ] 4.5 Add an entrypoint check that reports clearly when `/work` or `/tmp` is not writable by uid 99, and that creates `/work/home` and `/work/sessions`; verify with a root-owned bind mount
+- [x] 4.5 Add an entrypoint check that reports clearly when `/work` or `/tmp` is not writable by uid 99, and that creates `/work/home` and `/work/sessions`; verify with a root-owned bind mount
 - [ ] 4.6 Verify the image under `--cap-drop=ALL --security-opt=no-new-privileges:true` with `/samples` read-only: runs as 99:100, `java`/`javac`/`ps`/`tshark`/`objdump` resolve, health becomes `healthy`, authenticated `initialize` succeeds, headless Ghidra starts, and `docker stop` exits cleanly
 - [ ] 4.7 Write a smoke-test script (generate throwaway key, run image, `curl /healthz`, MCP `initialize` with and without the key, assert `401` without, assert exit non-zero with no key); verify it passes locally
 

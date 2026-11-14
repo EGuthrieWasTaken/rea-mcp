@@ -107,6 +107,8 @@ RUN set -eux; \
     mkdir -m 0755 /samples; \
     chmod 1777 /tmp
 
+COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/rea-mcp-entrypoint
+
 # JAVA_HOME and PATH point at the Temurin JDK. TMPDIR is deliberately not set: Ghidra aborts on a
 # project path with a dot-prefixed element, so a TMPDIR like /work/.tmp would break it.
 ENV NODE_ENV=production \
@@ -134,6 +136,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
 
 USER 99:100
 
-# tini is PID 1: it forwards SIGTERM to the gateway and reaps orphaned processes.
-ENTRYPOINT ["/usr/bin/tini", "--"]
+# tini is PID 1: it forwards SIGTERM to the gateway and reaps orphaned processes. The entrypoint script
+# checks that /work and /tmp are writable and creates /work/home and /work/sessions, then runs the CMD.
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/rea-mcp-entrypoint"]
 CMD ["node", "/app/dist/main.js"]
