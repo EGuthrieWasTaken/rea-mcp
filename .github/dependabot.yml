@@ -5,3 +5,15 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+
+  # Keeps the tag-and-digest pin of the base image in docker/Dockerfile current. REA admits
+  # Node 24 only from 24.22.1 and does not admit Node 25 (docs/DESIGN.md, section 2.1), so a
+  # new Node major version is never proposed here: move to one by hand after checking REA.
+  # The Ghidra and JDK archives are plain ARGs that Dependabot cannot read; bump those by hand.
+  - package-ecosystem: "docker"
+    directory: "/docker"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]

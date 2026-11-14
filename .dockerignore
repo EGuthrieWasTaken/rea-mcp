@@ -1,0 +1,13 @@
+# Deny by default: only the files the image build reads may enter the build context.
+# That keeps .env files, samples/, work/, .git and local node_modules out of every layer
+# (openspec: secret-hygiene, container-image). Add a path below only when the Dockerfile
+# needs it.
+*
+
+!LICENSE
+!package.json
+!package-lock.json
+!.npmrc
+!tsconfig.json
+!tsconfig.build.json
+!src

@@ -456,10 +456,7 @@ kept as the record of why they were made.
 Each item names the task that should close it.
 
 1. That the SHA-256 recorded in section 8 equals the one published in Ghidra's
-   release notes for 12.1.4. It was computed from a single download, and the
-   published value could not be read from the build environment. The URL and the
-   JDK range (21 or newer, no maximum) are confirmed (task 4.1; **maintainer
-   check**).
+   release notes for 12.1.4. **Resolved 2026-11-14**: it does (section 8.2; **Ran**).
 2. That the native decompiler in the official Linux x86_64 archive runs under uid
    99 in the image. The archive ships it (section 8; **Ran**); running it is
    task 4.6.
@@ -467,10 +464,15 @@ Each item names the task that should close it.
    JDK 21, runs on the image's Debian userland with REA and Ghidra. It was
    verified by hash and contents but not executed (section 9.3; tasks 4.3, 4.6).
    Also that `dumpcap` carries no file capabilities and `tshark -r` works under
-   `--cap-drop=ALL` (section 9.4; task 4.6).
+   `--cap-drop=ALL` (section 9.4; task 4.6). **Partly resolved 2026-11-14**: the JDK
+   runs in the image (`java` and `javac` report 21.0.13), `dumpcap` has no file
+   capabilities, and `tshark -r` works as uid 99 under `--cap-drop=ALL` (section 11.1).
+   What remains is Ghidra and REA running on that JDK (task 4.6).
 4. REA's Ghidra-backed analysis on Node 24 (task 4.6). Its stdio server was run on
    Node 24.22.3 in CI (section 2.1). The base tag resolves to Node 24.22.3, read
    from a tag name rather than by running `node` in the image (section 9.2).
+   **Partly resolved 2026-11-14**: `node --version` in the image reports v24.22.3
+   (section 11.1). Ghidra-backed analysis on it remains (task 4.6).
 5. That the Ghidra JVM reports the expected maximum heap when
    `GHIDRA_HEADLESS_MAXMEM` is set (4.4).
 6. REA and Ghidra with a read-only `/samples`, a read-only root filesystem and a
@@ -768,15 +770,15 @@ unzip -Z1 ghidra.zip | grep 'Decompiler/os/linux_x86_64/decompile$'
 
 ### 8.2 What is still UNVERIFIED
 
-- **The SHA-256 against Ghidra's published value.** The hash above was computed
-  from one HTTPS download. Ghidra's release notes list a SHA-256 for the archive,
-  but the release page, the expanded asset list and GitHub's API digest could not
-  be read from the environment used here (access to that repository is limited to
-  anonymous git reads), and no independent mirror was reachable. The matching
-  `application.revision.ghidra` shows the archive is consistent with the tag; it
-  does not show it is the archive Ghidra published. **Maintainer check:** compare
-  `GHIDRA_SHA256` with the SHA-256 in the release notes for `Ghidra_12.1.4_build`
-  before the first image is published, and correct it here if they differ.
+- **The SHA-256 against Ghidra's published value: resolved on 2026-11-14.** When it
+  was pinned, the hash was computed from one HTTPS download and the release page
+  could not be read. From the maintainer's host the GitHub API answers
+  (`GET /repos/NationalSecurityAgency/ghidra/releases/tags/Ghidra_12.1.4_build`,
+  **Ran**), and three values were compared programmatically: the SHA-256 line in that
+  release's notes, the `digest` of the asset `ghidra_12.1.4_PUBLIC_20260921.zip` (569,649,598
+  bytes, the size recorded above), and `GHIDRA_SHA256` in the table above. **All three are
+  equal.** The image build also downloads the archive afresh and checks it against the pin
+  (section 11.1). The maintainer may still wish to compare the release notes by eye.
 - **That the decompiler and headless analyzer run** under uid 99 with the chosen
   JDK in the image (task 4.6).
 - **Ghidra 12.2 and JDK 25** (section 2.3) were not examined; the pin does not
@@ -818,7 +820,9 @@ cannot serve.
 So the tag is Node **24.22.3**, which is at or above REA's floor of 24.22.1
 (section 2.1). The version comes from the tag name that shares the digest, not
 from running `node --version` in the image; the image build and smoke test
-(tasks 4.3, 4.7) are the first runs of it. The tag moves, so task 4.3 should
+(tasks 4.3, 4.7) are the first runs of it. On 2026-11-14 `docker buildx imagetools
+inspect node:24-bookworm-slim` still gave the digest above, and `node --version` in the
+built image reported v24.22.3 (section 11.1). The tag moves, so task 4.3 should
 reference the base by this digest as well as the tag for reproducible builds
 (`design.md`, Risks: "consider digest pinning"). A pinned digest goes stale and
 needs a Dependabot `docker` entry, which `.github/dependabot.yml` does not have yet.
@@ -851,10 +855,11 @@ The two other options in D9 were not examined: the Adoptium apt repository (its
 host was not reachable) and copying from an official `eclipse-temurin` image
 (whether a Debian-based tag exists was not checked).
 
-The archive was **not executed** here, so `java -version`, `javac -version` and
-compatibility with bookworm's glibc are **UNVERIFIED** until tasks 4.3 and 4.6 run
-it in the image. The image must keep the upstream licence notices (D12); the
-archive's licence files were not examined.
+The archive was **not executed** when it was pinned. Task 4.3 then ran it in the image
+(section 11.1): `java -version` reports `Temurin-21.0.13+9` and `javac -version` reports
+21.0.13, so it runs on bookworm's glibc. Whether Ghidra and REA run on it is task 4.6. The
+image must keep the upstream licence notices (D12): the archive ships `NOTICE` and a `legal/`
+directory, and the image carries both (section 11.1).
 
 ### 9.4 `tshark` and `libcap2-bin` (corrects design D9)
 
@@ -862,10 +867,9 @@ archive's licence files were not examined.
 `wireshark-common`, on which `tshark` depends, has an unconditional
 `Depends: libcap2-bin` (**Ran**: full `Depends` field), so it is installed with
 `tshark`. `wireshark-common` only recommends `wireshark | tshark`, and `tshark`
-itself does not depend on `libcap2-bin`. Whether `dumpcap` is given file
-capabilities in the image was not examined: **UNVERIFIED**. Task 4.6 must check
-that `getcap /usr/bin/dumpcap` prints nothing and that `tshark -r <file>` works
-under `--cap-drop=ALL`.
+itself does not depend on `libcap2-bin`. In the built image `/usr/bin/dumpcap` is
+`-rwxr-xr-x root root`, `getcap /usr/bin/dumpcap` prints nothing, and `tshark -r` works as
+uid 99 under `--cap-drop=ALL` (section 11.1; **Ran** 2026-11-14).
 
 ### 9.5 Alternative: a Debian 13 base
 
@@ -889,12 +893,10 @@ Ghidra and `tshark` 4.4 behave on it is **UNVERIFIED**, and it changes the
 
 ### 9.6 What is still UNVERIFIED
 
-- That the Temurin JDK runs in the image and satisfies REA's and Ghidra's checks
-  (tasks 4.3, 4.6).
-- That `dumpcap` has no file capabilities and `tshark -r` works with all
-  capabilities dropped (task 4.6).
-- The Node version actually reported inside the image (tasks 4.3, 4.7).
-- REA's Ghidra-backed analysis on Node 24 (section 2.1; task 4.6).
+- That Ghidra and REA run on the Temurin JDK (task 4.6). The JDK itself runs in the
+  image (section 11.1).
+- REA's Ghidra-backed analysis on Node 24 (section 2.1; task 4.6). The image's Node is
+  v24.22.3 (section 11.1).
 
 ## 10. unRAID and Community Apps rules (task 5.1)
 
@@ -1026,3 +1028,58 @@ not read: its address was not found in the pages fetched. What it would cover
   and shutdown use the host's Docker Stop Timeout.
 - Whether the PID limit constrains several Ghidra sessions.
 - Whether the two-factor requirement in the policy thread still applies.
+
+## 11. Image build and verification (tasks 4.3 to 4.7)
+
+Gathered on 2026-11-14 on the maintainer's unRAID host (Docker Engine 29.8.2, BuildKit
+0.33.1, cgroup v2, amd64), with Docker's built-in `default` builder and the image tagged
+`rea-mcp-dev:test`. Everything is **Ran** unless it says otherwise. The sample set is the
+maintainer's `rea-test-samples.zip`, kept outside the repository; its
+`sha256sum -c SHA256SUMS` reported all 50 files `OK`, and none is executable.
+
+### 11.1 The Dockerfile (task 4.3)
+
+`docker/Dockerfile` builds five stages on one base, `node:24-bookworm-slim` pinned by
+tag and digest (section 9.2): `base` (which refuses any platform but amd64), `ghidra`, `jdk`,
+`build` and `runtime`. Only `runtime` ships.
+
+```bash
+docker buildx build --platform linux/amd64 -f docker/Dockerfile -t <image> .
+```
+
+| Check | Result |
+|---|---|
+| Build | Succeeds; about 1 min 20 s with warm base layers, 1 min 34 s the first time; the image is 1.92 GB (`docker image inspect` `.Size` 1,915,751,710) |
+| Pins equal this document | Programmatic comparison of `GHIDRA_URL`, `GHIDRA_SHA256`, `GHIDRA_VERSION`, `JDK_URL`, `JDK_SHA256` and the base digest in the Dockerfile with sections 8 and 9: all equal |
+| `GHIDRA_SHA256` altered (first hex digit changed, one character) | `sha256sum --check` prints `/tmp/ghidra.zip: FAILED`, the build exits `1`, and no image with that tag exists |
+| `JDK_SHA256` altered the same way | `/tmp/jdk.tar.gz: FAILED`, exit `1`, no image |
+| Ghidra layout | `/opt/ghidra/support/analyzeHeadless` and `.../Decompiler/os/linux_x86_64/decompile` are present and executable; `application.version=12.1.4`, `application.java.min=21`, `application.java.max=` empty |
+| Runtime identity | `uid=99(rea-mcp) gid=100(users)`; `getent passwd 99` gives `rea-mcp:x:99:100::/work/home:/usr/sbin/nologin` |
+| Node | `v24.22.3` (at or above REA's floor of 24.22.1) |
+| JDK | `OpenJDK Runtime Environment Temurin-21.0.13+9 (build 21.0.13+9-LTS)`; `javac 21.0.13` |
+| Other tools | `ps` procps-ng 4.0.2; `tshark` 4.0.17 (`4.0.17-0+deb12u3`); `objdump` 2.40; `tini`; each resolves on `PATH` |
+| Build-only tools absent | `curl` and `unzip` are not on `PATH`, and `dpkg-query` knows neither |
+| Environment | `HOME=/work/home`, `JAVA_HOME=/opt/jdk`, `GHIDRA_INSTALL_DIR=/opt/ghidra`, `PORT=8080`; **`TMPDIR` is unset**; `/tmp` is `drwxrwxrwt`, writable by uid 99 |
+| Volumes and directories | `/samples` and `/work` declared as volumes, `WORKDIR /work`; `/work/home` and `/work/sessions` exist, mode `700`, owned `rea-mcp:users`; `/samples` refuses a write under `:ro` ("Read-only file system") |
+| `dumpcap` | `-rwxr-xr-x root root`; `getcap /usr/bin/dumpcap` prints nothing |
+| `rea-agents` | Installed 6.9.0, equal to the lockfile's; no `~/.claude.json`, `~/.agents` or `~/.claude` under `HOME`, so no `setup` output |
+| No key in the image | `REA_MCP_API_KEY` occurs 0 times in `docker image inspect` and `docker history --no-trunc` |
+| Licence notices | `/opt/ghidra/LICENSE`, `/opt/ghidra/licenses`, `/opt/ghidra/GPL/licenses`, `/opt/jdk/NOTICE`, `/opt/jdk/legal`, `/app/LICENSE` (Ghidra's archive has no `NOTICE` file) |
+
+The first build raised BuildKit's `FromPlatformFlagConstDisallowed` lint on a constant
+`--platform` in `FROM`. It was replaced by a `dpkg --print-architecture` assertion in `base`.
+
+**The capture, opened in `tshark` for the first time** (as uid 99, `--cap-drop=ALL`,
+`--security-opt=no-new-privileges:true`, `/samples` read-only; empty stderr, nothing written to
+`HOME`). It matches the samples README exactly:
+
+| README says | `tshark -r` shows |
+|---|---|
+| 34 packets: 6 UDP, 26 TCP, 2 ICMP | 34 frames; `udp` 6, `tcp` 26, `icmp` 2 |
+| DNS `www.example.test` and `api.example.test` answered; `missing.example.test` NXDOMAIN | Frames 1 to 6; the `dns.flags.rcode == 3` filter matches frame 6, "No such name" |
+| `GET /index.html`, `POST /api/v1/items` (JSON) | Frames 10 and 20; the POST is dissected as `HTTP/JSON` |
+| One ClientHello with SNI `api.example.test` | `203.0.113.30  api.example.test` (the `tls.handshake.type == 1` filter) |
+| One ping, id `0x0042` | Frames 33 and 34, `id=0x0042, seq=1/256`, ttl 64 and 56 |
+
+What this section does not yet cover: that the container starts and is healthy, the heap
+mapping, the entrypoint, and Ghidra running (tasks 4.4 to 4.7).
