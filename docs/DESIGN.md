@@ -206,12 +206,14 @@ versions (**Ran**):
   Ghidra 12.x from 12.1 upward is admitted, but a build other than 12.1.4 runs
   with an "unverified build" limitation recorded on the session (**Source**).
 - REA's docs state that 12.1 releases require JDK 21 or newer, that Ghidra 12.2
-  declares JDK 25 or newer, and that neither sets a maximum (**Docs**). That
-  agrees with the brief, but it is REA's statement about Ghidra, not Ghidra's
-  own: **UNVERIFIED** against Ghidra's release notes or its
-  `application.properties` (task 4.1).
-- The release URL and SHA-256 for Ghidra 12.1.4 are **UNVERIFIED** (task 4.1).
-  The pin that REA verified is 12.1.4 with JDK 21; choosing it is task 4.1's job.
+  declares JDK 25 or newer, and that neither sets a maximum (**Docs**). For 12.1.4
+  that agrees with Ghidra's own `application.properties` (`application.java.min=21`,
+  no maximum), confirmed in section 8. Ghidra 12.2's JDK 25 declaration was not
+  examined.
+- The release URL and SHA-256 for Ghidra 12.1.4 are recorded in section 8
+  (task 4.1). The pin is 12.1.4 with JDK 21, the pair REA verified. Only the
+  comparison of that SHA-256 with the value Ghidra publishes is still
+  **UNVERIFIED**.
 
 ### 2.4 Ghidra heap
 
@@ -450,9 +452,14 @@ kept as the record of why they were made.
 
 Each item names the task that should close it.
 
-1. Ghidra 12.1.4 download URL and SHA-256, and its declared JDK range from
-   Ghidra's own release notes or `application.properties` (task 4.1).
-2. That the official Linux x86_64 Ghidra archive ships the native decompiler (4.1, 4.6).
+1. That the SHA-256 recorded in section 8 equals the one published in Ghidra's
+   release notes for 12.1.4. It was computed from a single download, and the
+   published value could not be read from the build environment. The URL and the
+   JDK range (21 or newer, no maximum) are confirmed (task 4.1; **maintainer
+   check**).
+2. That the native decompiler in the official Linux x86_64 archive runs under uid
+   99 in the image. The archive ships it (section 8; **Ran**); running it is
+   task 4.6.
 3. Debian bookworm package availability and versions for a full JDK 21, `tshark`
    4.x, `procps`, `binutils`, `tini` and `rizin`, and the Temurin fallback (4.2).
 4. What the `node:24-*` base tag resolves to, and REA's behaviour on Node 24
@@ -500,8 +507,8 @@ The seven in the change's `design.md` stand. The discovery adds:
    D1/D2. The stdio relay remains the default; task 2.4 decides.
 2. **Ghidra pin.** 12.1.4 with JDK 21 is the combination REA verifies; newer 12.x
    releases are admitted with an "unverified build" limitation, and 12.2
-   reportedly needs JDK 25. Should the image pin the verified pair? Recommended:
-   yes, decided in task 4.1.
+   reportedly needs JDK 25. Should the image pin the verified pair? Decided in
+   task 4.1: yes (section 8).
 3. **Retention of `/work/sessions/<id>`.** Delete a session's directory when the
    session ends, or keep it? Tool outputs written there (for example
    `decompile_all`) would otherwise vanish with the session. Proposed: keep, and
@@ -667,3 +674,72 @@ Consequences:
   its own shutdown sequence. The spec needs an exact environment, a process-group
   kill and a configurable stdin-EOF grace, so task 3.11 spawns the child itself and
   reuses only the SDK's framing helpers (`ReadBuffer`, `serializeMessage`).
+
+## 8. Ghidra release pin (task 4.1)
+
+**Decision: pin Ghidra 12.1.4 with JDK 21.** It is the release REA 6.9.0 verifies
+against (section 2.3), so REA records no "unverified build" limitation, and JDK 21
+is the lowest JDK Ghidra itself declares for it.
+
+Gathered on 2026-11-14.
+
+| Item | Value |
+|---|---|
+| Release | Ghidra 12.1.4, `PUBLIC` build of 2026-09-21 |
+| Tag | `Ghidra_12.1.4_build`, commit `8b6bbb857accdfa20dc5b2f5dea471178c2e9fbc` (**Ran**: `git ls-remote --tags`) |
+| Archive | `ghidra_12.1.4_PUBLIC_20260921.zip`, 569,649,598 bytes |
+| `GHIDRA_URL` | `https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.4_build/ghidra_12.1.4_PUBLIC_20260921.zip` |
+| `GHIDRA_SHA256` | `ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db` |
+| `GHIDRA_VERSION` | `12.1.4` |
+| JDK | 21 or newer; Ghidra declares no maximum |
+
+### 8.1 Sources
+
+- **JDK range (Ghidra's own declaration).** `Ghidra/application.properties` at the
+  tag (**Source**) and inside the release archive (**Ran**, `unzip -p`) both say
+  `application.java.min=21`, `application.java.max=` (empty) and
+  `application.java.compiler=21`.
+- **README and release notes.** The README at the tag says "Install JDK 21 64-bit"
+  and links Eclipse Temurin (`adoptium.net`) as its JDK source (**Source**).
+  `ChangeHistory.md` at the tag opens with "Ghidra 12.1.4 Change History
+  (September 2026)" and contains no change to the JDK requirement; the statement
+  that Ghidra requires JDK 21 comes from an earlier release's entry (**Source**).
+- **Archive contents** (**Ran**): `unzip -t` reports no errors. The top-level
+  directory is `ghidra_12.1.4_PUBLIC/`, so the image build must move it to
+  `/opt/ghidra`, because `GHIDRA_INSTALL_DIR` must be the directory that holds
+  `support/analyzeHeadless`. `support/analyzeHeadless` is present. The native
+  decompiler `Ghidra/Features/Decompiler/os/linux_x86_64/decompile` is present, as
+  is the Windows one; there is no ARM64 build, which agrees with the image being
+  amd64-only. The embedded `application.revision.ghidra` equals the tag's commit.
+- **The filename.** It contains the build date and is not listed anywhere readable
+  from the build environment. It was found by requesting the release-download URL
+  for each date from 2026-09-05 to 2026-09-30: only `20260921` answered (a `302`
+  redirect to GitHub's release-asset host), and the archive's own
+  `application.build.date.short` is `20260921`.
+
+To reproduce:
+
+```bash
+git ls-remote --tags https://github.com/NationalSecurityAgency/ghidra Ghidra_12.1.4_build
+mkdir ghidra-probe && cd ghidra-probe
+curl -sSL -o ghidra.zip "<GHIDRA_URL from the table>"
+sha256sum ghidra.zip
+unzip -p ghidra.zip ghidra_12.1.4_PUBLIC/Ghidra/application.properties
+unzip -Z1 ghidra.zip | grep 'Decompiler/os/linux_x86_64/decompile$'
+```
+
+### 8.2 What is still UNVERIFIED
+
+- **The SHA-256 against Ghidra's published value.** The hash above was computed
+  from one HTTPS download. Ghidra's release notes list a SHA-256 for the archive,
+  but the release page, the expanded asset list and GitHub's API digest could not
+  be read from the environment used here (access to that repository is limited to
+  anonymous git reads), and no independent mirror was reachable. The matching
+  `application.revision.ghidra` shows the archive is consistent with the tag; it
+  does not show it is the archive Ghidra published. **Maintainer check:** compare
+  `GHIDRA_SHA256` with the SHA-256 in the release notes for `Ghidra_12.1.4_build`
+  before the first image is published, and correct it here if they differ.
+- **That the decompiler and headless analyzer run** under uid 99 with the chosen
+  JDK in the image (task 4.6).
+- **Ghidra 12.2 and JDK 25** (section 2.3) were not examined; the pin does not
+  depend on them.

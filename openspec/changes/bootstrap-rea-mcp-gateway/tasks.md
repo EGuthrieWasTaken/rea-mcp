@@ -39,7 +39,7 @@ Ask the maintainer before pushing or publishing to GHCR.
 
 ## 4. Container image
 
-- [ ] 4.1 Choose and pin the Ghidra release; record version, URL, SHA-256, and the JDK major version from that release's notes in `docs/DESIGN.md`, with sources
+- [x] 4.1 Choose and pin the Ghidra release; record version, URL, SHA-256, and the JDK major version from that release's notes in `docs/DESIGN.md`, with sources
 - [ ] 4.2 Verify Debian bookworm package availability and versions for a full JDK (with `javac`), `tshark`, `procps`, `binutils`, `tini`, and `rizin`, and that the `node:24-bookworm-slim` tag resolves to Node 24.22.1 or newer; record results and any fallback (for example Temurin) in `docs/DESIGN.md`
 - [ ] 4.3 Write `docker/Dockerfile` (multi-stage, `linux/amd64`, Ghidra stage with hash verification, runtime as `99:100`, `WORKDIR /work`, volumes, `tini`, Node-based `HEALTHCHECK`, `GHIDRA_INSTALL_DIR=/opt/ghidra`, writable `/tmp`, no dot-prefixed `TMPDIR`, no `rea-agents setup`); verify the build succeeds and fails when `GHIDRA_SHA256` is altered
 - [ ] 4.4 Verify the `GHIDRA_MAX_HEAP` → `GHIDRA_HEADLESS_MAXMEM` mapping reaches Ghidra: check the Ghidra JVM's effective max heap in a running container
