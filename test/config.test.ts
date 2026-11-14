@@ -20,6 +20,7 @@ describe("loadConfig defaults", () => {
       trustProxy: false,
       allowedHosts: [],
       logLevel: "info",
+      workDir: "/work",
     });
   });
 
@@ -51,6 +52,7 @@ describe("loadConfig overrides", () => {
       trustProxy: true,
       allowedHosts: ["rea.example"],
       logLevel: "debug",
+      workDir: "/work",
     });
   });
 
@@ -119,5 +121,20 @@ describe("loadConfig rejects unusable values, naming the variable", () => {
       expect(failure({ [name]: marker }).message).not.toContain(marker);
     }
     expect(failure({ ALLOWED_HOSTS: `http://${marker}` }).message).not.toContain(marker);
+  });
+});
+
+describe("loadConfig REA_MCP_WORK_DIR (an internal setting, for tests)", () => {
+  it("defaults to /work", () => {
+    expect(loadConfig({}).workDir).toBe("/work");
+  });
+
+  it("accepts an absolute path and drops trailing slashes", () => {
+    expect(loadConfig({ REA_MCP_WORK_DIR: "/tmp/some/dir///" }).workDir).toBe("/tmp/some/dir");
+    expect(loadConfig({ REA_MCP_WORK_DIR: "/" }).workDir).toBe("/");
+  });
+
+  it.each(["relative/path", "./here", "work"])("rejects the relative path %j, naming the variable", (value) => {
+    expect(failure({ REA_MCP_WORK_DIR: value }).variable).toBe("REA_MCP_WORK_DIR");
   });
 });

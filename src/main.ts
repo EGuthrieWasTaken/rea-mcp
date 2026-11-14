@@ -1,14 +1,21 @@
-// Entry point. The gateway is wired up task by task (authentication, sessions),
-// following openspec/changes/bootstrap-rea-mcp-gateway/tasks.md.
-import { ConfigError, loadConfig, type Config } from "./config.js";
+// Entry point: validate everything, then listen. Nothing is opened until the
+// configuration, the keys, the work directory and REA itself have all checked out.
+import { accessSync, constants, mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { createKeyVerifier } from "./auth.js";
-import { createGatewayServer, listen, shutdown } from "./http/server.js";
+import { ConfigError, loadConfig, type Config } from "./config.js";
 import { createFailureLimiter } from "./http/ratelimit.js";
+import { createGatewayServer, listen, shutdown } from "./http/server.js";
 import { KeyError, loadKeys } from "./keys.js";
 import { createLogger } from "./logger.js";
+import { productionLaunch, ReaNotInstalledError, type ReaLaunch } from "./rea/launch.js";
+import { SessionManager } from "./sessions/manager.js";
 
 // A closed stdout (for example a log pipe that went away) must not crash us.
 process.stdout.on("error", () => undefined);
+
+const errorCode = (error: unknown): string =>
+  error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : "unknown error";
 
 async function main(): Promise<void> {
   // Configuration is not known yet, so startup problems are logged at the default level.
@@ -35,12 +42,39 @@ async function main(): Promise<void> {
   }
 
   const logger = createLogger(config.logLevel);
+
+  // Sessions get their working directories here. Say so plainly if it cannot be used,
+  // rather than failing obscurely on the first session.
+  const sessionsDir = join(config.workDir, "sessions");
+  try {
+    mkdirSync(sessionsDir, { recursive: true, mode: 0o700 });
+    accessSync(sessionsDir, constants.W_OK);
+  } catch (error) {
+    logger.error("the work directory is not usable", {
+      reason: `${config.workDir} is not writable (${errorCode(error)})`,
+    });
+    process.exitCode = 1;
+    return;
+  }
+
+  let launch: ReaLaunch;
+  try {
+    launch = productionLaunch(process.env);
+  } catch (error) {
+    if (!(error instanceof ReaNotInstalledError)) throw error;
+    logger.error("cannot find REA", { reason: error.message });
+    process.exitCode = 1;
+    return;
+  }
+
   // Only digests of the keys are kept from here on.
   const limiter = createFailureLimiter();
+  const sessions = new SessionManager({ logger, launch, sessionsDir });
   const server = createGatewayServer({
     logger,
     verifier: createKeyVerifier(keys),
     limiter,
+    mcp: sessions.handler,
     allowedHosts: config.allowedHosts,
     trustProxy: config.trustProxy,
   });
@@ -52,10 +86,13 @@ async function main(): Promise<void> {
     if (stopping) return;
     stopping = true;
     logger.info("shutting down", { reason: signal });
-    void shutdown(server).then(() => {
-      limiter.close();
-      process.exitCode = 0;
-    });
+    void sessions
+      .closeAll()
+      .then(() => shutdown(server))
+      .then(() => {
+        limiter.close();
+        process.exitCode = 0;
+      });
   };
   process.once("SIGTERM", () => stop("SIGTERM"));
   process.once("SIGINT", () => stop("SIGINT"));
@@ -63,8 +100,7 @@ async function main(): Promise<void> {
   try {
     await listen(server, config.port);
   } catch (error) {
-    const code = error instanceof Error && "code" in error ? String(error.code) : "unknown error";
-    logger.error("cannot listen", { port: config.port, reason: code });
+    logger.error("cannot listen", { port: config.port, reason: errorCode(error) });
     process.exitCode = 1;
     return;
   }
@@ -74,7 +110,6 @@ async function main(): Promise<void> {
     return;
   }
   logger.info("listening", { port: config.port });
-  logger.warn("the MCP endpoint is not wired up in this build; /mcp answers 404");
 }
 
 void main();

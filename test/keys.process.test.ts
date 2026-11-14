@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { randomKey } from "./helpers/keys.js";
 import { freePort, GatewayProcess, parseLogLines, startGateway } from "./helpers/process.js";
+import { tempDir } from "./helpers/tmp.js";
 
 const MESSAGE = "cannot start without a usable API key";
 
@@ -39,7 +40,7 @@ describe("gateway startup without a usable key", () => {
 
   it("does not report a key problem for a valid key, and keeps the key out of its output", async () => {
     const [key, port] = [randomKey(), await freePort()];
-    const gateway = GatewayProcess.start({ REA_MCP_API_KEY: key, PORT: String(port) });
+    const gateway = GatewayProcess.start({ REA_MCP_API_KEY: key, PORT: String(port), REA_MCP_WORK_DIR: tempDir() });
     try {
       await gateway.waitForLog((line) => line.message === "listening");
       expect(gateway.lines.map((line) => line.message)).not.toContain(MESSAGE);

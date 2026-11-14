@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     include: ["test/**/*.test.ts"],
     globalSetup: ["./test/global-setup.ts"],
+    setupFiles: ["./test/setup.ts"],
     environment: "node",
     // Integration tests spawn child processes; give them room without hiding hangs.
     testTimeout: 20_000,

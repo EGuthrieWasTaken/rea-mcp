@@ -2,6 +2,7 @@ import { connect, createServer, type AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { randomKey } from "./helpers/keys.js";
 import { freePort, GatewayProcess } from "./helpers/process.js";
+import { tempDir } from "./helpers/tmp.js";
 
 const running: GatewayProcess[] = [];
 afterEach(async () => {
@@ -9,7 +10,7 @@ afterEach(async () => {
 });
 
 const start = (env: Record<string, string>): GatewayProcess => {
-  const gateway = GatewayProcess.start(env);
+  const gateway = GatewayProcess.start({ REA_MCP_WORK_DIR: tempDir(), ...env });
   running.push(gateway);
   return gateway;
 };
@@ -54,8 +55,8 @@ describe("the running gateway process", () => {
 
     expect((await call({})).status).toBe(401);
     expect((await call({ "x-api-key": randomKey() })).status).toBe(401);
-    // Authenticated: nothing is attached to /mcp yet in this build, so it is a 404, not a 401.
-    expect((await call({ "x-api-key": key })).status).toBe(404);
+    // Authenticated: the request reaches the MCP handler, which rejects the empty body (not a 401).
+    expect((await call({ "x-api-key": key })).status).toBe(400);
 
     for (let i = 0; i < 8; i += 1) await call({ "x-api-key": randomKey() });
     const limited = await call({ "x-api-key": key });

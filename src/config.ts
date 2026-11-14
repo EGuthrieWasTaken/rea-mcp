@@ -16,6 +16,12 @@ export interface Config {
   /** Lower-cased host names with any port removed. Empty means "do not restrict". */
   readonly allowedHosts: readonly string[];
   readonly logLevel: LogLevel;
+  /**
+   * Where the gateway keeps its files (session working directories live in
+   * `<workDir>/sessions`). Always `/work` in the image; REA_MCP_WORK_DIR exists so
+   * tests can point it elsewhere, and is deliberately not a documented setting.
+   */
+  readonly workDir: string;
 }
 
 /**
@@ -104,6 +110,14 @@ const allowedHosts = (env: Environment): readonly string[] => {
   return [...hosts];
 };
 
+const workDir = (env: Environment): string => {
+  const raw = read(env, "REA_MCP_WORK_DIR") ?? "/work";
+  if (!raw.startsWith("/") || raw.includes("\0")) {
+    throw new ConfigError("REA_MCP_WORK_DIR", "must be an absolute path");
+  }
+  return raw.length > 1 ? raw.replace(/\/+$/, "") : raw;
+};
+
 export function loadConfig(env: Environment): Config {
   return {
     port: integer(env, "PORT", 1, 65535),
@@ -112,5 +126,6 @@ export function loadConfig(env: Environment): Config {
     trustProxy: boolean(env, "TRUST_PROXY"),
     allowedHosts: allowedHosts(env),
     logLevel: logLevel(env),
+    workDir: workDir(env),
   };
 }

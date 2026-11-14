@@ -126,6 +126,14 @@ first `X-Forwarded-For` entry.
   eviction of live sessions.
 - Before spawning, the gateway creates `/work/sessions/<session-id>` and starts
   the child there (D13).
+- **Session start is a handshake the gateway does itself, before the SDK
+  transport sees the request:** create the directory, spawn the child, put
+  `initialize` to it, and only on its answer register the session and hand the
+  SDK transport that answer, which it writes with the session header. A child
+  that cannot start, or dies or stalls during `initialize`, therefore gives a
+  plain `502` (a directory that cannot be created gives `500`) and no session,
+  and the directory of a failed start is removed. Doing it inside the SDK
+  transport would have committed a `200` SSE stream before REA had answered.
 - Idle reaping considers a session idle only when its in-flight count is zero.
 - Children are spawned in their own process group (`detached: true`) so that
   termination can signal the whole group (REA plus any Ghidra JVM). Termination
