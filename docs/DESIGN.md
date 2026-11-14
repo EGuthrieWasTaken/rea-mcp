@@ -1242,7 +1242,33 @@ noted (all **Ran**):
 `annotate_native_function` replaces a function's comment, so a later edit overwrites an earlier
 one on the same function.
 
-### 11.7 What was not checked
+### 11.7 The smoke-test script (task 4.7)
+
+`scripts/smoke_test.sh <image>` starts the image as the template will (`--cap-drop=ALL`,
+`--security-opt=no-new-privileges:true`, `/samples` read-only, a random host port on `127.0.0.1`) with a
+throwaway key, and asserts that: the container becomes `healthy`; its user is `99:100`; `GET /healthz`
+returns `200` and exactly `{"status":"ok"}` without a key; `initialize` with the key returns `200`, an
+`Mcp-Session-Id` and REA's result; the same request with no key and with a wrong key returns `401` and
+starts no session; `DELETE /mcp` ends the session; the key does not occur in the container's log; and
+`docker stop` exits `0` in under 10 s. It then starts two more containers, with no key and with a
+31-character key, and asserts each exits non-zero, names `REA_MCP_API_KEY`, and does not print the short
+key. It does not run Ghidra (sections 11.3 to 11.6 did). The key lives in the script's environment only:
+`docker` takes it from the environment, `curl` reads the header from stdin (`-H @-`) and `grep` reads it from a
+process substitution, so it is never on a command line, in a file or in the output. Containers are named
+with `REA_MCP_SMOKE_PREFIX` and always removed, with their anonymous volumes.
+
+| Run | Result |
+|---|---|
+| The built image | All checks pass, exit `0`, 4.6 s; no container is left |
+| A variant with `USER root` | Fails with "the container stopped before it became healthy" and the log: the entrypoint reports that `/work` is not writable by uid 0. A root process with all capabilities dropped has no `CAP_DAC_OVERRIDE`, so it cannot write to a directory owned by another uid |
+| A variant that starts as uid 1000 (`/work` made world-writable so it does start) | Healthy, then fails with "the image's user is '1000:100', not 99:100" |
+| An image name that does not exist | `docker run` fails and the script exits `125` |
+
+Two defects of the first draft were found and fixed by these runs: the port lookup ran before the
+container was known to be running, so an early exit gave no message; and `docker logs | grep -q` under
+`pipefail` could report a match as no match, so the key-in-the-log check reads the log into a variable first.
+
+### 11.8 What was not checked
 
 - **APK decompilation.** There is no APK sample and the image has no JADX by design, so only the
   non-APK error of section 11.5 was seen.

@@ -45,7 +45,7 @@ Ask the maintainer before pushing or publishing to GHCR.
 - [x] 4.4 Verify the `GHIDRA_MAX_HEAP` → `GHIDRA_HEADLESS_MAXMEM` mapping reaches Ghidra: check the Ghidra JVM's effective max heap in a running container
 - [x] 4.5 Add an entrypoint check that reports clearly when `/work` or `/tmp` is not writable by uid 99, and that creates `/work/home` and `/work/sessions`; verify with a root-owned bind mount
 - [x] 4.6 Verify the image under `--cap-drop=ALL --security-opt=no-new-privileges:true` with `/samples` read-only: runs as 99:100, `java`/`javac`/`ps`/`tshark`/`objdump` resolve, health becomes `healthy`, authenticated `initialize` succeeds, headless Ghidra starts, and `docker stop` exits cleanly
-- [ ] 4.7 Write a smoke-test script (generate throwaway key, run image, `curl /healthz`, MCP `initialize` with and without the key, assert `401` without, assert exit non-zero with no key); verify it passes locally
+- [x] 4.7 Write a smoke-test script (generate throwaway key, run image, `curl /healthz`, MCP `initialize` with and without the key, assert `401` without, assert exit non-zero with no key); verify it passes locally
 
 ## 5. unRAID template
 
