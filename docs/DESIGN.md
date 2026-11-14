@@ -478,8 +478,11 @@ Each item names the task that should close it.
 9. Which REA tools write to which paths, and whether any are confined to a root (8.3).
 10. That the SDK's streamable HTTP transport permits SSE comment frames and
     forced-SSE responses (3.6).
-11. unRAID / Community Apps template rules: attribute names, advanced display mode,
-    `ca_profile.xml`, icon size (5.1).
+11. Whether the Community Apps scanner finds a template at `unraid/rea-mcp.xml`
+    (the starter layout uses `templates/`), whether it accepts the hardening flags
+    in `ExtraParams` and a bare `Tools:` category, and what icon size it expects.
+    None is stated in the rules read in section 10; the submission flow's Validate
+    and Scan answers them (5.1; **maintainer check**).
 12. That the Claude custom-connector UI accepts a static request header, and the
     exact Cloudflare tunnel idle timeout (7.3, 8.3).
 13. Restoring a checkpoint with a real Ghidra: that it is fast, and that names,
@@ -517,9 +520,10 @@ The seven in the change's `design.md` stand. The discovery adds:
    `decompile_all`) would otherwise vanish with the session. Proposed: keep, and
    leave cleanup to the operator at first.
 4. **Termination grace.** A fixed constant, or a setting? Decided for now:
-   constants (5 s, and 30 s with checkpointing). Still open: how the unRAID
-   template gets a Docker stop timeout of at least 40 s when checkpointing is on
-   (how a template sets one is **UNVERIFIED**, task 5.1).
+   constants (5 s, and 30 s with checkpointing). The remaining question, how the
+   unRAID template gets a Docker stop timeout of at least 40 s when checkpointing
+   is on, is answered by task 5.1: it cannot. unRAID applies one host-wide setting,
+   so the operator must raise it (section 10.3).
 5. **Checkpoint retention.** Operator cleanup only, documented, or a later
    janitor that removes keys unused for a period?
 6. **Base distribution** (task 4.2). The spec fixes Debian bookworm, which packages
@@ -865,3 +869,134 @@ Ghidra and `tshark` 4.4 behave on it is **UNVERIFIED**, and it changes the
   capabilities dropped (task 4.6).
 - The Node version actually reported inside the image (tasks 4.3, 4.7).
 - REA's behaviour on Node 24 (section 2.1; tasks 4.3, 6.1).
+
+## 10. unRAID and Community Apps rules (task 5.1)
+
+Gathered on 2026-11-14. **Source** means read in the page or file named; nothing
+here was run on an unRAID host.
+
+### 10.1 Sources
+
+| Source | Used for |
+|---|---|
+| [Community Applications](https://docs.unraid.net/community-applications/) (unRAID docs) | How CA works; maintenance expectations; names the submission portal as "the source of truth for submission requirements, repository XML guidance, supported fields" |
+| [Managing and customizing containers](https://docs.unraid.net/unraid-os/using-unraid-to/run-docker-containers/managing-and-customizing-containers/) (unRAID docs) | Container management and the advanced view |
+| [CA Application Policies](https://forums.unraid.net/topic/87144-ca-application-policies/) (a locked forum thread, redirecting to a slug ending `-privacy-policy`) | Moderation rules |
+| Submission docs at `https://ca.unraid.net/submit/help`, and its `/repository-xml`, `/repository-info-xml`, `/xml-field-reference` and `/builders` pages | Minimum template and `ca_profile.xml` rules; the public field catalog |
+| [`unraid/unraid-community-apps-starter`](https://github.com/unraid/unraid-community-apps-starter) at `01398ff8bd728ce92dd9595e33d8577299e0e971` | A complete example template, profile and layout |
+| [`unraid/webgui`](https://github.com/unraid/webgui) at `99e39027fbd50cf8c3768da0464bdd8de754a7f7`: `emhttp/plugins/dynamix.docker.manager/` (`include/CreateDocker.php`, `include/Helpers.php`, `include/DockerClient.php`, `DockerSettings.page`, `default.cfg`) and `emhttp/languages/en_US/helptext.txt` | How unRAID reads a template and stops a container |
+| [Docker Engine API v1.47](https://docs.docker.com/reference/api/engine/version/v1.47.yaml), operation `ContainerStop` | The meaning of the stop `t` parameter |
+
+The forum's "Docker Template XML Schema" thread, which the CA docs point to, was
+not read: its address was not found in the pages fetched. What it would cover
+(attribute names, display values) was taken from the starter repository and the
+`webgui` source instead.
+
+### 10.2 Template rules that apply to `unraid/rea-mcp.xml`
+
+- **Root and elements.** The root is `<Container version="2">`. The starter template
+  uses `Name`, `Repository`, `Registry`, `Network`, `Shell`, `Privileged`, `Icon`,
+  `WebUI`, `Overview`, `Support`, `Project`, `TemplateURL`, `Category` and `Config`
+  entries, and says "Either Support or Project is REQUIRED" (the spec asks for
+  both). CA's public field catalog marks only `Name` and `Repository` as minimum;
+  `Category`, `Icon`, `Overview`, `Project`, `Support` and `TemplateURL` as
+  recommended; and `ExtraParams`, `Network`, `Privileged`, `Registry`, `Shell`,
+  `WebUI`, `Config`, `License` and `ReadMe` as advanced, that is optional.
+- **`<Config>` attributes.** `Name`, `Target`, `Default`, `Mode`, `Description`,
+  `Type`, `Display`, `Required` and `Mask` (starter; the same set is what the
+  unRAID editor reads and writes). `Type` is `Port`, `Path` or `Variable` (and
+  `Device`). `Mode` is `tcp` or `udp` for a port and, for a path, one of `rw`,
+  `rw,slave`, `rw,shared`, `ro`, `ro,slave` or `ro,shared`, so `ro` on `/samples`
+  is valid. `Mask` is the editor's "Password Mask" option, which it branches on
+  when it equals `"true"`.
+- **Advanced display.** `Display="advanced"`. The values the editor handles are
+  `always`, `always-hide`, `advanced` and `advanced-hide`; `advanced` entries are
+  placed in a separate advanced section of the form, and the starter uses
+  `Display="advanced"` for its PUID and PGID variables.
+- **Icon.** `<Icon>` is recommended and the starter's example URLs end in `.png`;
+  unRAID downloads the URL and stores it as `<container>-icon.png`. CA's policy
+  forbids animated icons and asks that icons and descriptions be in good taste.
+  **No pixel size is stated** in any source read. The starter repository's own
+  icon is an SVG with a 256 by 256 view box, and the submission flow rejects the
+  placeholder if it is not replaced.
+- **`TemplateURL`** is "the canonical raw template URL used for identity and
+  review" and in the starter "the raw GitHub URL for that exact XML file".
+- **`WebUI`** is optional (advanced). The starter sets one; nothing requires it,
+  so the spec's "no `WebUI`" for an API-only container is allowed.
+- **`ExtraParams`** is advanced, and the catalog warns that CA's parser "security
+  checks may rewrite or reject unsafe values". Whether
+  `--cap-drop=ALL --security-opt=no-new-privileges:true` passes is not stated.
+- **`Category`** takes the `Parent:Sub` form; the starter and the format page
+  show `Tools:System` and `Tools:Utilities`, and the starter suggests the
+  Application Categorizer plugin for valid values. Whether the spec's bare
+  `Tools:` is accepted is not stated.
+- **Optional extras in the starter** that fit this project: `License`, `ReadMe`,
+  `Changes`, `Requires`. `MinVer` and `MaxVer` are left out because nothing has
+  been tested on any unRAID version.
+
+### 10.3 Host settings that affect the container (Settings, then Docker)
+
+- **Docker Stop Timeout.** `DOCKER_TIMEOUT`, default `10`, described as "The time
+  in seconds to allow a container to gracefully stop before forcing it to stop".
+  When unRAID stops a container from its UI it calls
+  `POST /containers/<id>/stop?t=<DOCKER_TIMEOUT>` (`DockerClient.php`,
+  `stopContainer`). **No template element or attribute sets a stop timeout**: the
+  CA field catalog has none. Docker's API describes `t` as the "number of seconds
+  to wait before killing the container" and does not say whether an explicit `t`
+  overrides a container's own `--stop-timeout`, so a `--stop-timeout` in
+  `ExtraParams` is not relied on (**UNVERIFIED**).
+- **Consequence for design D6.** With checkpointing off, the gateway shuts down
+  within the default 10 s. With checkpointing on, its budget is up to 40 s, so the
+  operator must raise Docker Stop Timeout to at least 40. Otherwise Docker kills
+  the container after 10 s, REA may be killed while saving, and edits since its last
+  save are lost (a kill does not corrupt a checkpoint; section 2.8). This is a
+  **manual step on the unRAID host**, to be stated in the README (task 7.2) and in
+  the checkpoint variable's description (task 5.3). Whether array stop and server
+  shutdown use the same value was not read, because that script is not in the
+  `webgui` repository (**UNVERIFIED**).
+- **Docker PID Limit.** `DOCKER_PID_LIMIT`, shipped empty, whose help text says it
+  limits "the number of PIDs that a docker can use. The default is 2048. Set to zero
+  for unlimited PIDs (not recommended)". Threads count against a PID limit, so
+  several Ghidra JVMs and their decompiler processes, up to `MAX_SESSIONS` of them,
+  could approach it. That is an inference and is **UNVERIFIED**; it belongs in the
+  memory and sizing guidance (tasks 7.2, 7.4) and in the end-to-end check (8.3).
+
+### 10.4 Community Apps submission and moderation
+
+- **Needed to submit** (submission help): a public, active repository; an
+  OSI-approved `LICENSE` at the root (the committed GPL-3.0 qualifies); a
+  `ca_profile.xml`; and valid template XML whose entry has a `<Repository>`. The
+  author runs Validate and Scan at `https://ca.unraid.net/submit/new` and then
+  submits for review. That portal needs a sign-in, so it is a **maintainer step**.
+- **`ca_profile.xml`** is **expected for a Community Apps submission and not for
+  installing from a private template URL.** The file name is exact, it sits in the
+  repository root, its root element is `<CommunityApplications>`, and a non-empty
+  `<Profile>` is required: without it "Community Apps will block submission
+  finalization". `<Icon>`, `<WebPage>` and `<Forum>` are recommended and the rest
+  optional. Task 5.5 decides whether to add it, given open question 7.
+- **Policies** (forum thread, locked, with a June 2025 note on submissions):
+  every template needs a reasonable description; `Project` and `Support` URLs must
+  not be referral or affiliate links; icons and descriptions must be in good taste
+  and icons must not be animated; a maintained application must be open source;
+  maintainers are expected to keep up with new unRAID releases and answer support
+  requests. For GHCR images, download counts come from a Docker Hub equivalent,
+  so none are shown without one.
+- The same thread says "All GitHub repositories / dockerHub repositories must have
+  2 Factor Authentication enabled, and an acknowledgement of this must be given".
+  Whether that still applies to the current portal is **UNVERIFIED**.
+- **Layout.** The starter and the builder guide put templates under `templates/`
+  ("one XML file per Docker app under `templates/`"), and the profile and icon in
+  the root. The spec puts this template at `unraid/rea-mcp.xml`.
+
+### 10.5 What is still UNVERIFIED
+
+- That the CA scanner finds a template at `unraid/rea-mcp.xml`. If it does not,
+  moving it under `templates/` is a change to the `unraid-template` spec.
+- That the scanner accepts the hardening flags in `ExtraParams` and a bare
+  `Tools:` category.
+- The icon size CA expects. The plan for task 5.2 is a 256 by 256 PNG, matching
+  the starter icon's view box, which is a choice and not a guideline.
+- Whether a `--stop-timeout` in `ExtraParams` is honoured, and whether array stop
+  and shutdown use the host's Docker Stop Timeout.
+- Whether the PID limit constrains several Ghidra sessions.
+- Whether the two-factor requirement in the policy thread still applies.

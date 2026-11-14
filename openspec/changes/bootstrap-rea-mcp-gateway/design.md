@@ -147,8 +147,10 @@ first `X-Forwarded-For` entry.
 - Gateway shutdown: stop listening, terminate all groups in parallel, exit 0.
   The budget is 10 s or less without checkpointing, inside Docker's 10 s default,
   so no custom stop timeout is needed. With checkpointing it is up to 40 s, so
-  the container's stop timeout must be raised to at least that; how the unRAID
-  template sets one is unverified (task 5.1).
+  the container's stop timeout must be raised to at least that. A template cannot
+  do it: unRAID applies one host-wide "Docker Stop Timeout" (default 10 s) when it
+  stops a container (`docs/DESIGN.md`, section 10.3), so the operator must raise
+  that setting.
 - Child stderr is line-buffered into the JSON log at `debug`/`warn`.
 
 ### D7. Keep-alives
@@ -354,11 +356,14 @@ canonical list with evidence and the task that closes each item.
 - That, with checkpointing on, non-stock targets fail to open instead of
   falling back, and that a conversation can be blocked by its own idle child.
 - Whether unRAID's tooling or user shares leave checkpoint directories at mode
-  `700` owned by uid 99, and how a template sets a Docker stop timeout.
+  `700` owned by uid 99, and whether a `--stop-timeout` in `ExtraParams` is
+  honoured (a template has no other way to set one; `docs/DESIGN.md`, section 10.3).
 - Whether Claude Code and the claude.ai connector start a separate MCP session
   per conversation and send `DELETE /mcp` or call `close_binary` on exit.
-- Current unRAID / Community Apps template rules: attribute names for advanced
-  display, whether `ca_profile.xml` is expected, icon size guidance.
+- Whether the Community Apps scanner accepts this repository's template path
+  (`unraid/rea-mcp.xml`), the hardening flags in `ExtraParams`, a bare `Tools:`
+  category and the icon, and what icon size it expects (`docs/DESIGN.md`,
+  section 10).
 - That the Claude custom-connector UI accepts a static request header.
 - The exact Cloudflare idle/response timeout applicable to tunnels.
 
@@ -377,6 +382,8 @@ canonical list with evidence and the task that closes each item.
    third-party download? (Task 4.2: bookworm does not package it, so the image
    omits it unless the maintainer says otherwise.)
 7. Is submission to Community Apps intended, or only a private template URL?
+   (Task 5.1: `ca_profile.xml` is required only for a submission, which also needs
+   a passing Validate and Scan on `ca.unraid.net`, a maintainer step.)
 8. Should `/work/sessions/<session-id>` be deleted when a session ends, or kept?
    Proposed: kept, with cleanup left to the operator.
 9. Should the termination grace periods (5 s, and 30 s with checkpointing) stay
