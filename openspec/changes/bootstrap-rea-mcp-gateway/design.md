@@ -210,12 +210,18 @@ Three stages on `node:24-bookworm-slim`, whose Node must be 24.22.1 or newer
   if set, must have no dot-prefixed element. REA's own `HOME` points at a
   writable directory under `/work`.
 - `/work` holds `home`, `sessions` and, when enabled, `checkpoints`.
-- `tshark` is used only to read capture files, never to capture, so no file
-  capabilities are set and `libcap2-bin` is not expected to be needed. This is
-  what makes `--cap-drop=ALL` workable.
+- `tshark` is used only to read capture files, never to capture. Debian's
+  `wireshark-common` depends on `libcap2-bin`, so it is installed
+  (`docs/DESIGN.md`, section 9.4). Whether `dumpcap` ends up with file
+  capabilities is unverified; task 4.6 checks that it has none and that
+  `tshark -r` works with `--cap-drop=ALL`.
 - The JDK major version follows the pinned Ghidra release notes. If Debian
   bookworm does not package that version, use the Eclipse Temurin apt
   repository or copy the JDK from an official `eclipse-temurin` image stage.
+  Task 4.2 found no JDK 21 in any bookworm pocket, so a fallback is needed;
+  `docs/DESIGN.md` section 9.3 records the Temurin release and a proposed form
+  (a hash-verified tarball in its own build stage), and open question 11 asks
+  whether to change base distribution instead.
 
 ### D10. Ghidra heap
 
@@ -334,9 +340,9 @@ canonical list with evidence and the task that closes each item.
   running Ghidra JVM.
 - That REA behaves correctly on Node 24.22.1 or newer (its admission rule was
   verified; its behaviour on Node 24 was not run).
-- That Debian bookworm ships a full JDK of the needed major version, `tshark`
-  4.x, and whether it ships `rizin` at all; and that `node:24-bookworm-slim`
-  resolves to Node 24.22.1 or newer.
+- That the Temurin 21 JDK, which bookworm needs because it packages no JDK 21
+  (`docs/DESIGN.md`, section 9), runs in the image with REA and Ghidra; and that
+  `dumpcap` carries no file capabilities there.
 - That REA and Ghidra work with a read-only `/samples`, a read-only root
   filesystem and a non-root uid, writing only under `/work` and the temporary
   directory.
@@ -368,7 +374,8 @@ canonical list with evidence and the task that closes each item.
 5. Should the GHCR package be public (required for a template that pulls
    without registry credentials)?
 6. Is Rizin wanted if it is not in the distribution and would need a
-   third-party download?
+   third-party download? (Task 4.2: bookworm does not package it, so the image
+   omits it unless the maintainer says otherwise.)
 7. Is submission to Community Apps intended, or only a private template URL?
 8. Should `/work/sessions/<session-id>` be deleted when a session ends, or kept?
    Proposed: kept, with cleanup left to the operator.
@@ -376,3 +383,7 @@ canonical list with evidence and the task that closes each item.
    constants, or become settings? Decided for now: constants.
 10. Should checkpoint entries be pruned by the gateway, or is operator cleanup
     enough? Proposed: operator cleanup, documented.
+11. Bookworm packages no JDK 21 and no `rizin`. Keep bookworm and add a pinned
+    Temurin tarball (`docs/DESIGN.md` section 9.3), or move to Debian 13, which
+    packages JDK 21 but changes the `container-image` spec (section 9.5)?
+    Proposed: keep bookworm with the tarball, as the spec says.

@@ -169,8 +169,8 @@ versions (**Ran**):
 | Admitted | no | **yes** | no | no | no | **yes** | **yes** | no | no | **yes** |
 
 - Node 24 is supported **only from 24.22.1**, and Node 25 is not supported. The
-  image's Node 24 base must resolve to 24.22.1 or newer. What the `node:24-*`
-  tag currently resolves to was not checked: **UNVERIFIED** (task 4.2/4.3).
+  image's Node 24 base must resolve to 24.22.1 or newer. `node:24-bookworm-slim`
+  resolved to 24.22.3 on 2026-11-14 (section 9.2).
 - REA was exercised on Node 22.23.4 only (**Ran**). Running it on Node 24 was
   not possible in the discovery environment, so REA's behaviour on Node 24
   beyond the admission rule is **UNVERIFIED**. The CI job on Node 24 and the
@@ -460,10 +460,13 @@ Each item names the task that should close it.
 2. That the native decompiler in the official Linux x86_64 archive runs under uid
    99 in the image. The archive ships it (section 8; **Ran**); running it is
    task 4.6.
-3. Debian bookworm package availability and versions for a full JDK 21, `tshark`
-   4.x, `procps`, `binutils`, `tini` and `rizin`, and the Temurin fallback (4.2).
-4. What the `node:24-*` base tag resolves to, and REA's behaviour on Node 24
-   (4.2, 4.3, 6.1).
+3. That the Temurin 21.0.13+9 JDK, which bookworm needs because it packages no
+   JDK 21, runs on the image's Debian userland with REA and Ghidra. It was
+   verified by hash and contents but not executed (section 9.3; tasks 4.3, 4.6).
+   Also that `dumpcap` carries no file capabilities and `tshark -r` works under
+   `--cap-drop=ALL` (section 9.4; task 4.6).
+4. REA's behaviour on Node 24 (4.3, 6.1). The base tag resolves to Node 24.22.3,
+   read from a tag name rather than by running `node` (section 9.2).
 5. That the Ghidra JVM reports the expected maximum heap when
    `GHIDRA_HEADLESS_MAXMEM` is set (4.4).
 6. REA and Ghidra with a read-only `/samples`, a read-only root filesystem and a
@@ -519,6 +522,11 @@ The seven in the change's `design.md` stand. The discovery adds:
    (how a template sets one is **UNVERIFIED**, task 5.1).
 5. **Checkpoint retention.** Operator cleanup only, documented, or a later
    janitor that removes keys unused for a period?
+6. **Base distribution** (task 4.2). The spec fixes Debian bookworm, which packages
+   no JDK 21, so the JDK comes from a hash-verified Temurin tarball (section 9.3).
+   Debian 13 (trixie) packages JDK 21 (section 9.5), which would let the image take
+   the JDK from apt with Debian's security updates, but it changes the
+   `container-image` spec. Which does the maintainer want?
 
 ## 5. Decisions taken since discovery
 
@@ -743,3 +751,117 @@ unzip -Z1 ghidra.zip | grep 'Decompiler/os/linux_x86_64/decompile$'
   JDK in the image (task 4.6).
 - **Ghidra 12.2 and JDK 25** (section 2.3) were not examined; the pin does not
   depend on them.
+
+## 9. Image packages and base (task 4.2)
+
+Gathered on 2026-11-14. The Debian package indexes (`Packages.xz`, amd64) were
+downloaded from `deb.debian.org` and `security.debian.org` and parsed (**Ran**),
+against Debian 12.15 (`bookworm`, suite `oldstable`, `Release` dated 2026-07-11).
+The pockets read were `main`, `bookworm-updates`, `bookworm-backports` and
+`bookworm-security`.
+
+### 9.1 What bookworm packages
+
+| Needed | Found | Result |
+|---|---|---|
+| `binutils` (`objdump`) | 2.40-2 (`main`) | Available |
+| `procps` (`ps`) | 2:4.0.2-3 (`main`) | Available |
+| `tini` | 0.19.0-1+b3 (`main`) | Available |
+| `tshark` | 4.0.17-0+deb12u3 (`main` and `bookworm-security`) | Available, 4.x |
+| Full JDK 21 | **None in any pocket.** Only `openjdk-17-{jdk,jdk-headless,jre-headless}`: 17.0.19+10 in `main`, 17.0.21+9 in `bookworm-security` | **Not available**, so the fallback in 9.3 is needed |
+| `rizin` | **None in any pocket** | **Not available**; omitted from the image (the spec asks for it only when installable from the distribution) |
+
+`bookworm-updates` and `bookworm-backports` held none of the packages looked for.
+JDK 17 is below the minimum of 21 that Ghidra 12.1.4 declares (section 8), so it
+cannot serve.
+
+### 9.2 Base image
+
+`node:24-bookworm-slim` was resolved through the Docker Hub API (**Ran**):
+
+| Item | Value (2026-11-14) |
+|---|---|
+| Digest of the tag | `sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54` (tag updated 2026-11-11) |
+| Other tags with the same digest | `24.22.3-bookworm-slim`, `24.22-bookworm-slim`, `krypton-bookworm-slim` |
+| Platforms | `linux/amd64`, `linux/arm64`, `linux/ppc64le` |
+
+So the tag is Node **24.22.3**, which is at or above REA's floor of 24.22.1
+(section 2.1). The version comes from the tag name that shares the digest, not
+from running `node --version` in the image; the image build and smoke test
+(tasks 4.3, 4.7) are the first runs of it. The tag moves, so task 4.3 should
+reference the base by this digest as well as the tag for reproducible builds
+(`design.md`, Risks: "consider digest pinning"). A pinned digest goes stale and
+needs a Dependabot `docker` entry, which `.github/dependabot.yml` does not have yet.
+
+### 9.3 JDK fallback: Eclipse Temurin 21
+
+The fallback `design.md` D9 anticipated. Temurin's own API and the checksum file
+published next to the asset give the same SHA-256, and the archive was downloaded
+and hashed again here (**Ran**), giving the same value a third time.
+
+| Item | Value |
+|---|---|
+| Release | Temurin `jdk-21.0.13+9` (21.0.13+9-LTS), HotSpot, linux x64, image type `jdk` |
+| Archive | `OpenJDK21U-jdk_x64_linux_hotspot_21.0.13_9.tar.gz`, 207,858,352 bytes |
+| URL | `https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13%2B9/OpenJDK21U-jdk_x64_linux_hotspot_21.0.13_9.tar.gz` |
+| SHA-256 | `d7f5d5cf865a2902b70ff549b97586a7d3f234e016f041ab447ea740c7d66d1c` |
+| Sources | `https://api.adoptium.net/v3/assets/latest/21/hotspot?architecture=x64&image_type=jdk&os=linux&vendor=eclipse` (`checksum` field), and the `.sha256.txt` file beside the asset |
+| Contents (**Ran**, `tar -t`) | Top-level directory `jdk-21.0.13+9/`; contains `bin/java` and `bin/javac` |
+
+**Proposal for task 4.3** (the maintainer may prefer another form): fetch and verify
+this archive in its own build stage with `sha256sum -c`, exactly as for Ghidra,
+and copy the extracted directory into the runtime stage as `/opt/jdk` with
+`JAVA_HOME` pointing at it. The gateway already passes `JAVA_HOME` to the REA
+child when set (design D8), and REA reads it (section 2.2; whether Ghidra's own
+launcher does was not checked here). This
+needs no extra apt repository or signing key and no dependence on an
+`eclipse-temurin` image tag. Its cost is that nothing updates the JDK
+automatically: its security updates need a manual bump of the version and hash.
+The two other options in D9 were not examined: the Adoptium apt repository (its
+host was not reachable) and copying from an official `eclipse-temurin` image
+(whether a Debian-based tag exists was not checked).
+
+The archive was **not executed** here, so `java -version`, `javac -version` and
+compatibility with bookworm's glibc are **UNVERIFIED** until tasks 4.3 and 4.6 run
+it in the image. The image must keep the upstream licence notices (D12); the
+archive's licence files were not examined.
+
+### 9.4 `tshark` and `libcap2-bin` (corrects design D9)
+
+`design.md` D9 said `libcap2-bin` was not expected to be needed. In bookworm,
+`wireshark-common`, on which `tshark` depends, has an unconditional
+`Depends: libcap2-bin` (**Ran**: full `Depends` field), so it is installed with
+`tshark`. `wireshark-common` only recommends `wireshark | tshark`, and `tshark`
+itself does not depend on `libcap2-bin`. Whether `dumpcap` is given file
+capabilities in the image was not examined: **UNVERIFIED**. Task 4.6 must check
+that `getcap /usr/bin/dumpcap` prints nothing and that `tshark -r <file>` works
+under `--cap-drop=ALL`.
+
+### 9.5 Alternative: a Debian 13 base
+
+Not a change to the spec, which fixes bookworm; recorded as input to open question
+6 in section 4.3. The same indexes for Debian 13.7 (`trixie`, suite `stable`,
+`Release` dated 2026-09-12):
+
+| Package | trixie `main` |
+|---|---|
+| `openjdk-21-jdk` (also `-headless`) | 21.0.12.1+1-1~deb13u1 (`openjdk-25-jdk` 25.0.3+9-2~deb13u1 is also there) |
+| `tshark` | 4.4.18-0+deb13u1 |
+| `procps` | 2:4.0.4-9 |
+| `binutils` | 2.44-3 |
+| `tini` | 0.19.0-3+b8 |
+| `rizin` | none |
+
+`node:24-trixie-slim` exists on Docker Hub (**Ran**). A trixie base would give a
+distribution-maintained JDK 21 and drop the tarball pin. It was not tried: how REA,
+Ghidra and `tshark` 4.4 behave on it is **UNVERIFIED**, and it changes the
+`container-image` spec's base requirement and tasks 4.2 and 4.3.
+
+### 9.6 What is still UNVERIFIED
+
+- That the Temurin JDK runs in the image and satisfies REA's and Ghidra's checks
+  (tasks 4.3, 4.6).
+- That `dumpcap` has no file capabilities and `tshark -r` works with all
+  capabilities dropped (task 4.6).
+- The Node version actually reported inside the image (tasks 4.3, 4.7).
+- REA's behaviour on Node 24 (section 2.1; tasks 4.3, 6.1).
