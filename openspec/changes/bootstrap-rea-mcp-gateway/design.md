@@ -331,41 +331,36 @@ Program after first analysis and again on normal close, and restores it with
 
 ## Unverified assumptions
 
-Each of these must be confirmed against a primary source during implementation
-and recorded, with the source, in `docs/DESIGN.md`, whose section 4.2 is the
-canonical list with evidence and the task that closes each item.
+`docs/DESIGN.md` section 13 is the canonical, current list, with evidence and what would close each item; its
+section 4.2 is the original list, annotated as items were closed. As of 2026-11-14 the image work has
+**verified**, with a real Ghidra on an unRAID 7.3.4 host: the pinned Ghidra SHA-256 against Ghidra's published
+value; the Temurin 21 JDK, `dumpcap` without file capabilities and `tshark -r` under `--cap-drop=ALL`; the heap
+mapping; REA's Ghidra-backed analysis on Node 24.22.3 (all 22 sample binaries); a read-only `/samples`, a
+read-only root filesystem and a non-root uid; the SDK's SSE comment frames and forced-SSE responses; the
+checkpoint behaviours of D14 (restore, lease conflict, non-stock targets failing, saving on `close_binary`, on
+stdin close and on `docker stop`, no corruption after `SIGKILL`); and that the claude.ai connector documents a
+fixed request header (read, not tried).
 
-- Which Ghidra release to pin, its SHA-256, and the JDK major version it
-  requires (REA verifies Ghidra 12.1.4 with JDK 21; that is REA's statement
-  about Ghidra, not Ghidra's own).
-- That `GHIDRA_HEADLESS_MAXMEM` produces the expected maximum heap in the
-  running Ghidra JVM.
-- That REA's Ghidra-backed analysis behaves correctly on Node 24.22.1 or newer. Its
-  stdio server was run on Node 24.22.3 in CI (`docs/DESIGN.md`, section 2.1).
-- That the Temurin 21 JDK, which bookworm needs because it packages no JDK 21
-  (`docs/DESIGN.md`, section 9), runs in the image with REA and Ghidra; and that
-  `dumpcap` carries no file capabilities there.
-- That REA and Ghidra work with a read-only `/samples`, a read-only root
-  filesystem and a non-root uid, writing only under `/work` and the temporary
-  directory.
-- That the official Linux x86_64 Ghidra archive ships the native decompiler.
-- That the SDK's streamable HTTP transport permits SSE comment frames and
-  forced-SSE responses as assumed in D7.
-- That checkpoint restore with a real Ghidra is fast and preserves names,
-  comments and types, and that publishing on close fits the 30 s grace.
-- That, with checkpointing on, non-stock targets fail to open instead of
-  falling back, and that a conversation can be blocked by its own idle child.
-- Whether unRAID's tooling or user shares leave checkpoint directories at mode
-  `700` owned by uid 99, and whether a `--stop-timeout` in `ExtraParams` is
-  honoured (a template has no other way to set one; `docs/DESIGN.md`, section 10.3).
-- Whether Claude Code and the claude.ai connector start a separate MCP session
-  per conversation and send `DELETE /mcp` or call `close_binary` on exit.
-- Whether the Community Apps scanner accepts this repository's template path
-  (`unraid/rea-mcp.xml`), the hardening flags in `ExtraParams`, a bare `Tools:`
-  category and the icon, and what icon size it expects (`docs/DESIGN.md`,
-  section 10).
-- That the Claude custom-connector UI accepts a static request header.
-- The exact Cloudflare idle/response timeout applicable to tunnels.
+Still **UNVERIFIED**:
+
+- The CI jobs and the branch ruleset on GitHub, Dependabot's `docker` entry, and GHCR publishing (written, not
+  run; publishing is disabled pending the maintainer's approval).
+- Claude Code and the claude.ai connector against this server: separate MCP session per conversation, and
+  whether `DELETE /mcp` or `close_binary` is sent on exit (task 8.3).
+- A Cloudflare Tunnel in front of it: the limits for a stream that has started and then goes quiet, and what
+  happens to a call whose connection a proxy cut. (Cloudflare documents a 125 s default for a first response.)
+- Checkpointing and analysis on a Program much larger than the 770 KB sample, and whether the 30 s grace
+  suffices; four concurrent sessions and 8G heaps; unRAID's own PID limit under load.
+- On unRAID: the "New Permissions" tool and checkpoint directory modes; whether array stop and shutdown use the
+  Docker Stop Timeout; whether `--stop-timeout` in `ExtraParams` is honoured; how the edit form renders the
+  template.
+- Which REA tools write where (only `decompile_all` was checked), and `TMPDIR` under a long per-session path.
+- APK decompilation (no JADX in the image by design).
+
+**Found, not assumed:** a client holding the key can run arbitrary commands in the container as uid 99 and
+reach the network, through REA's `capture_process_scenario` (`docs/DESIGN.md` section 11.5,
+`docs/SECURITY.md`). The gateway relays REA's tools unfiltered (D2), so this follows from the design; the
+isolation of the container, not the gateway, is what limits it.
 
 ## Open Questions
 

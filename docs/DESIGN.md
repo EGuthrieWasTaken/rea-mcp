@@ -1476,3 +1476,23 @@ IP addresses are `127.0.0.1`, RFC 5737 documentation addresses and test fixtures
 reserved `.example` test value. The only host names are public GitHub, GHCR, Docker, Debian, Adoptium, Node.js,
 unRAID, Cloudflare and Anthropic locations. No real host name, key or token of the maintainer appears.
 
+## 16. Reconciling the specs with what was built (task 8.4)
+
+`openspec validate bootstrap-rea-mcp-gateway --strict` passes (2026-11-14). Compared with the built image,
+template and scripts, every requirement of `container-image`, `unraid-template`, `secret-hygiene` and the
+image-related scenarios of `session-management` and `ci-gate` is met or has its evidence above, with these
+differences. **None of the spec changes below has been made**: a spec change is the maintainer's to decide, and the
+one the maintainer approved (the JDK archive in the `secret-hygiene` fetch scenario, section 5.5) is already in.
+
+| Observation | Proposed change, for the maintainer |
+|---|---|
+| The image downloads a Temurin JDK and verifies its SHA-256 exactly like Ghidra; `container-image` has a "Pinned, verified Ghidra" requirement and nothing for the JDK (a wrong JDK hash fails the build: section 11.1, `scripts/check_hash_pins.sh`) | Add a requirement, "Pinned, verified JDK when the base distribution packages none", with the same two scenarios |
+| `DELETE /mcp`, and `docker stop`, while a request is in flight end that request as HTTP `200` with an empty body (section 11.5). `session-management` fixes only the child-exit case | Say what a request in flight gets when its session is ended by the client or by shutdown (for example a JSON-RPC error), then add a test |
+| `container-image` says the gateway reports an unwritable `/work` and the entrypoint reports `/tmp`; the built entrypoint reports both, plus `/work/home` and `/work/sessions` (section 11.2) | Optionally name those two directories in the "Unwritable work directory" scenario |
+| The CI `template` job does not call `xmllint`, which design D11 mentions (section 12) | None needed; D11's wording could say "a strict XML parse" |
+| `unraid-template` fixes `Category` as the bare `Tools:`, and the template follows it; Community Apps was not consulted, since submission was decided against | None unless submission is reconsidered |
+| Design open question 4 (which image tags to publish) is still open; `scripts/image_tags.sh` implements a proposal | Decide the tag policy before publishing is enabled |
+
+The design's "Unverified assumptions" section was refreshed to the current state (it is a planning
+artifact, not a spec).
+
