@@ -27,7 +27,20 @@ export interface Config {
    * checkpointing, which is the default. When set, children get a longer shutdown grace.
    */
   readonly checkpointDir: string | undefined;
+  /**
+   * GHIDRA_MAX_HEAP: the maximum Java heap of Ghidra's JVM, as the operator wrote it.
+   * Handed to REA as GHIDRA_HEADLESS_MAXMEM. Unset leaves REA's own default (2G).
+   */
+  readonly ghidraMaxHeap: string | undefined;
 }
+
+/**
+ * A JVM heap size: a positive integer, optionally followed by k, m or g in either case.
+ * (A bare number is bytes, as for the JVM.) REA turns the value into -Xmx and an invalid
+ * one makes Java fail to start, so it is checked here, at gateway startup.
+ */
+const HEAP_SIZE = /^[1-9]\d{0,14}[kKmMgG]?$/;
+export const isHeapSize = (value: string): boolean => HEAP_SIZE.test(value);
 
 /**
  * The documented defaults, as the strings an operator would set. The unRAID
@@ -40,6 +53,12 @@ export const DEFAULT_ENV = {
   TRUST_PROXY: "false",
   ALLOWED_HOSTS: "",
   LOG_LEVEL: "info",
+  // These have no default: unset means REA's own behaviour (a 2G heap, its default
+  // startup deadline, no checkpointing). They are listed so the unRAID template check can
+  // compare every advanced variable, and so a blank value reads as unset.
+  GHIDRA_MAX_HEAP: "",
+  REA_GHIDRA_STARTUP_TIMEOUT_MS: "",
+  REA_GHIDRA_CHECKPOINT_DIR: "",
 } as const;
 
 /** A configuration value that cannot be used. `variable` names the culprit. */
@@ -123,6 +142,15 @@ const workDir = (env: Environment): string => {
   return raw.length > 1 ? raw.replace(/\/+$/, "") : raw;
 };
 
+const ghidraMaxHeap = (env: Environment): string | undefined => {
+  const raw = read(env, "GHIDRA_MAX_HEAP");
+  if (raw === undefined) return undefined;
+  if (!isHeapSize(raw)) {
+    throw new ConfigError("GHIDRA_MAX_HEAP", "must be a JVM heap size: a positive integer, optionally followed by k, m or g");
+  }
+  return raw;
+};
+
 const checkpointDir = (env: Environment): string | undefined => {
   const raw = read(env, "REA_GHIDRA_CHECKPOINT_DIR");
   if (raw === undefined) return undefined;
@@ -142,5 +170,6 @@ export function loadConfig(env: Environment): Config {
     logLevel: logLevel(env),
     workDir: workDir(env),
     checkpointDir: checkpointDir(env),
+    ghidraMaxHeap: ghidraMaxHeap(env),
   };
 }

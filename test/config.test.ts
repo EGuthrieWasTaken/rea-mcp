@@ -138,3 +138,69 @@ describe("loadConfig REA_MCP_WORK_DIR (an internal setting, for tests)", () => {
     expect(failure({ REA_MCP_WORK_DIR: value }).variable).toBe("REA_MCP_WORK_DIR");
   });
 });
+
+describe("loadConfig GHIDRA_MAX_HEAP", () => {
+  it("is unset by default, leaving REA's own heap", () => {
+    expect(loadConfig({}).ghidraMaxHeap).toBeUndefined();
+    expect(loadConfig({ GHIDRA_MAX_HEAP: "  " }).ghidraMaxHeap).toBeUndefined();
+  });
+
+  it.each(["512M", "8G", "8g", "8m", "16384M", "1024", "2048K", "1k", "999999999999999"])(
+    "accepts the JVM heap size %j as written",
+    (value) => {
+      expect(loadConfig({ GHIDRA_MAX_HEAP: value }).ghidraMaxHeap).toBe(value);
+    },
+  );
+
+  it.each(["lots", "0", "0G", "08G", "1.5G", "8GB", "8 G", "G", "-1", "+8G", "8T", "8G ;", "1e3", "9999999999999999G"])(
+    "rejects %j, naming the variable",
+    (value) => {
+      expect(failure({ GHIDRA_MAX_HEAP: value }).variable).toBe("GHIDRA_MAX_HEAP");
+    },
+  );
+
+  it("never echoes the offending value", () => {
+    const marker = "ZZ-marker-value-ZZ";
+    expect(failure({ GHIDRA_MAX_HEAP: marker }).message).not.toContain(marker);
+    expect(failure({ REA_GHIDRA_CHECKPOINT_DIR: marker }).message).not.toContain(marker);
+  });
+
+  it("trims surrounding whitespace, as for every other setting", () => {
+    expect(loadConfig({ GHIDRA_MAX_HEAP: "  8G\n" }).ghidraMaxHeap).toBe("8G");
+  });
+});
+
+describe("loadConfig REA_GHIDRA_CHECKPOINT_DIR", () => {
+  it("is unset by default, which means no checkpointing", () => {
+    expect(loadConfig({}).checkpointDir).toBeUndefined();
+  });
+
+  it("accepts an absolute path as written", () => {
+    expect(loadConfig({ REA_GHIDRA_CHECKPOINT_DIR: "/work/checkpoints" }).checkpointDir).toBe("/work/checkpoints");
+  });
+
+  it.each(["work/checkpoints", "./cp", "~/cp"])("rejects the relative path %j, naming the variable", (value) => {
+    expect(failure({ REA_GHIDRA_CHECKPOINT_DIR: value }).variable).toBe("REA_GHIDRA_CHECKPOINT_DIR");
+  });
+});
+
+describe("DEFAULT_ENV lists every advanced variable of the unRAID template", () => {
+  it("has exactly the eight, the last three with no default", () => {
+    expect(Object.keys(DEFAULT_ENV).sort()).toEqual(
+      [
+        "ALLOWED_HOSTS",
+        "GHIDRA_MAX_HEAP",
+        "LOG_LEVEL",
+        "MAX_SESSIONS",
+        "PORT",
+        "REA_GHIDRA_CHECKPOINT_DIR",
+        "REA_GHIDRA_STARTUP_TIMEOUT_MS",
+        "SESSION_IDLE_TIMEOUT_SEC",
+        "TRUST_PROXY",
+      ].sort(),
+    );
+    expect(DEFAULT_ENV.GHIDRA_MAX_HEAP).toBe("");
+    expect(DEFAULT_ENV.REA_GHIDRA_STARTUP_TIMEOUT_MS).toBe("");
+    expect(DEFAULT_ENV.REA_GHIDRA_CHECKPOINT_DIR).toBe("");
+  });
+});

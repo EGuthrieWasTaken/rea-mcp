@@ -97,6 +97,29 @@ describe("a session through the gateway, with a real MCP client", () => {
     await client.close();
   });
 
+  it("passes the startup timeout through and maps the heap onto the variable REA reads", async () => {
+    const harness = await startHarness({
+      gatewayEnv: {
+        REA_GHIDRA_STARTUP_TIMEOUT_MS: "600000",
+        GHIDRA_MAX_HEAP: "8G",
+        GHIDRA_HEADLESS_MAXMEM: "1G", // set directly: must not get through
+      },
+    });
+    const { client } = await connectClient(harness);
+    const names = ["REA_GHIDRA_STARTUP_TIMEOUT_MS", "GHIDRA_MAX_HEAP", "GHIDRA_HEADLESS_MAXMEM"];
+    const seen = JSON.parse(textOf(await client.callTool({ name: "env", arguments: { names } }))) as Record<string, string>;
+    expect(seen).toEqual({ REA_GHIDRA_STARTUP_TIMEOUT_MS: "600000", GHIDRA_HEADLESS_MAXMEM: "8G" });
+    await client.close();
+  });
+
+  it("passes neither setting when neither is configured", async () => {
+    const harness = await startHarness();
+    const { client } = await connectClient(harness);
+    const names = ["REA_GHIDRA_STARTUP_TIMEOUT_MS", "GHIDRA_MAX_HEAP", "GHIDRA_HEADLESS_MAXMEM"];
+    expect(textOf(await client.callTool({ name: "env", arguments: { names } }))).toBe("{}");
+    await client.close();
+  });
+
   it("captures the child's stderr into the gateway's log, tagged with the session", async () => {
     const harness = await startHarness();
     const { client, transport } = await connectClient(harness);

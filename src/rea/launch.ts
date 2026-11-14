@@ -4,7 +4,7 @@
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import type { Environment } from "../config.js";
+import { isHeapSize, type Environment } from "../config.js";
 
 export interface ReaLaunch {
   readonly command: string;
@@ -14,12 +14,20 @@ export interface ReaLaunch {
 }
 
 /**
- * The variables a REA child may inherit from the gateway. A variable is passed only
- * if it is on this list AND set. In particular no `REA_MCP_API_KEY*` variable is
- * here, nor any other secret, nor the five REA settings that cannot be combined with
- * a checkpoint directory. Later tasks add the heap, timeout and checkpoint settings.
+ * The variables a REA child may inherit from the gateway, unchanged. A variable is passed
+ * only if it is on this list AND set. In particular no `REA_MCP_API_KEY*` variable is
+ * here, nor any other secret, nor the five REA settings that cannot be combined with a
+ * checkpoint directory. REA_GHIDRA_STARTUP_TIMEOUT_MS is passed exactly as given: REA
+ * validates it itself, and only when a Ghidra session starts.
  */
-export const CHILD_ENV_ALLOWLIST = ["PATH", "HOME", "JAVA_HOME", "GHIDRA_INSTALL_DIR", "TMPDIR"] as const;
+export const CHILD_ENV_ALLOWLIST = [
+  "PATH",
+  "HOME",
+  "JAVA_HOME",
+  "GHIDRA_INSTALL_DIR",
+  "TMPDIR",
+  "REA_GHIDRA_STARTUP_TIMEOUT_MS",
+] as const;
 
 export function childEnvironment(env: Environment): Record<string, string> {
   const child: Record<string, string> = {};
@@ -27,6 +35,13 @@ export function childEnvironment(env: Environment): Record<string, string> {
     const value = env[name];
     if (value !== undefined && value !== "") child[name] = value;
   }
+  // The maximum heap of Ghidra's JVM. REA builds -Xmx from GHIDRA_HEADLESS_MAXMEM (then
+  // GHIDRA_MAXMEM, then 2G) and blanks JAVA_TOOL_OPTIONS and the other Java option
+  // variables, so this is the one route that works (design D10). GHIDRA_MAX_HEAP is the
+  // operator's setting; the child only ever sees the variable REA reads. The format was
+  // checked at startup, and is checked again so nothing odd can reach -Xmx.
+  const heap = env.GHIDRA_MAX_HEAP?.trim();
+  if (heap !== undefined && isHeapSize(heap)) child.GHIDRA_HEADLESS_MAXMEM = heap;
   return child;
 }
 

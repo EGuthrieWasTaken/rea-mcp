@@ -34,3 +34,26 @@ describe("the gateway with the real REA", () => {
     await client.close();
   }, 120_000);
 });
+
+describe("the gateway's settings reaching the real REA", () => {
+  it("delivers REA_GHIDRA_STARTUP_TIMEOUT_MS, which REA reports as its launch value", async () => {
+    const launch = productionLaunch({
+      PATH: process.env.PATH,
+      HOME: tempDir("rea-home-"),
+      REA_GHIDRA_STARTUP_TIMEOUT_MS: "600000",
+    });
+    const harness = await startHarness({ launch, initializeTimeoutMs: 60_000 });
+    const { client } = await connectClient(harness);
+    const result = await client.request(
+      {
+        method: "tools/call",
+        params: { name: "inspect_analysis_settings", arguments: { settings: ["ghidra.startup_timeout_ms"] } },
+      },
+      CallToolResultSchema,
+    );
+    const text = JSON.stringify(result);
+    expect(text).toContain('"launch_value":600000');
+    expect(text).toContain('"source":"setting"');
+    await client.close();
+  }, 120_000);
+});

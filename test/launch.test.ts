@@ -43,7 +43,42 @@ describe("childEnvironment", () => {
   });
 
   it("keeps its allowlist small and explicit", () => {
-    expect([...CHILD_ENV_ALLOWLIST]).toEqual(["PATH", "HOME", "JAVA_HOME", "GHIDRA_INSTALL_DIR", "TMPDIR"]);
+    expect([...CHILD_ENV_ALLOWLIST]).toEqual([
+      "PATH",
+      "HOME",
+      "JAVA_HOME",
+      "GHIDRA_INSTALL_DIR",
+      "TMPDIR",
+      "REA_GHIDRA_STARTUP_TIMEOUT_MS",
+    ]);
+  });
+
+  it("passes REA_GHIDRA_STARTUP_TIMEOUT_MS through exactly as given, valid or not", () => {
+    expect(childEnvironment({ REA_GHIDRA_STARTUP_TIMEOUT_MS: "600000" })).toEqual({ REA_GHIDRA_STARTUP_TIMEOUT_MS: "600000" });
+    // REA validates it itself, and only when a Ghidra session starts.
+    expect(childEnvironment({ REA_GHIDRA_STARTUP_TIMEOUT_MS: "abc" })).toEqual({ REA_GHIDRA_STARTUP_TIMEOUT_MS: "abc" });
+    expect(childEnvironment({})).toEqual({});
+  });
+
+  it("hands GHIDRA_MAX_HEAP to REA as GHIDRA_HEADLESS_MAXMEM, the variable REA reads, and only that", () => {
+    const child = childEnvironment({ GHIDRA_MAX_HEAP: "8G" });
+    expect(child).toEqual({ GHIDRA_HEADLESS_MAXMEM: "8G" });
+    expect(child).not.toHaveProperty("GHIDRA_MAX_HEAP");
+  });
+
+  it("ignores heap variables set directly, so GHIDRA_MAX_HEAP is the one documented route", () => {
+    expect(childEnvironment({ GHIDRA_HEADLESS_MAXMEM: "1G", GHIDRA_MAXMEM: "1G", JAVA_TOOL_OPTIONS: "-Xmx1g" })).toEqual({});
+    expect(childEnvironment({ GHIDRA_MAX_HEAP: "4G", GHIDRA_HEADLESS_MAXMEM: "1G" })).toEqual({ GHIDRA_HEADLESS_MAXMEM: "4G" });
+  });
+
+  it("never lets a malformed heap value reach the JVM", () => {
+    for (const bad of ["lots", "0", "8GB", "8G -Xss1g", "8G\n-Xss1g"]) {
+      expect(childEnvironment({ GHIDRA_MAX_HEAP: bad })).toEqual({});
+    }
+  });
+
+  it("trims whitespace around a valid heap size, as the configuration does", () => {
+    expect(childEnvironment({ GHIDRA_MAX_HEAP: " 8G\n" })).toEqual({ GHIDRA_HEADLESS_MAXMEM: "8G" });
   });
 });
 
