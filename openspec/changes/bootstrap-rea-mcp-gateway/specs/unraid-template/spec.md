@@ -74,17 +74,31 @@ The template SHALL define these `<Config>` entries, each with `Type`, `Target`,
 ### Requirement: Advanced configuration entries
 The template SHALL expose `MAX_SESSIONS`, `SESSION_IDLE_TIMEOUT_SEC`,
 `TRUST_PROXY`, `ALLOWED_HOSTS`, `GHIDRA_MAX_HEAP`,
-`REA_GHIDRA_STARTUP_TIMEOUT_MS`, and `LOG_LEVEL` as variables shown only in
-unRAID's advanced view, with defaults equal to the gateway's documented
-defaults.
+`REA_GHIDRA_STARTUP_TIMEOUT_MS`, `REA_GHIDRA_CHECKPOINT_DIR`, and `LOG_LEVEL` as
+variables shown only in unRAID's advanced view, with defaults equal to the
+gateway's documented defaults.
 
 #### Scenario: Advanced variables present
 - **WHEN** the template's variable entries are enumerated
-- **THEN** all seven advanced variables are present with an advanced display mode
+- **THEN** all eight advanced variables are present with an advanced display mode
 
 #### Scenario: Defaults agree with the gateway
 - **WHEN** a template default is compared with the gateway default for the same variable
 - **THEN** they are equal
+
+### Requirement: Checkpoint setting is off by default
+The `REA_GHIDRA_CHECKPOINT_DIR` entry SHALL default to empty, so checkpointing is
+off. Its description SHALL name `/work/checkpoints` as the value that enables it
+and SHALL state that, once enabled, targets that are not stock ELF, PE or
+Mach-O imports fail to open with Ghidra.
+
+#### Scenario: Checkpointing is off by default
+- **WHEN** the `REA_GHIDRA_CHECKPOINT_DIR` entry is read
+- **THEN** its default and value are empty
+
+#### Scenario: Description warns about the trade-off
+- **WHEN** the `REA_GHIDRA_CHECKPOINT_DIR` description is read
+- **THEN** it names `/work/checkpoints` and states that non-stock targets fail to open
 
 ### Requirement: Original icon
 The repository SHALL provide `unraid/icon.png`, a small PNG of original

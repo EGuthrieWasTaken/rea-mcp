@@ -384,10 +384,9 @@ Ghidra itself was not available, so nothing below involved a real Ghidra
 ## 3. Consequences for the OpenSpec change
 
 None of the findings above blocks the change, but several contradict or refine
-what `proposal.md` and `design.md` assume. **These edits have not been made**:
-they change planning artifacts, so they are listed here for the maintainer to
-accept (for example through `openspec-update-change`) before the later tasks
-rely on them.
+what `proposal.md` and `design.md` assume. **These edits have since been
+applied** to the proposal, design, specs and tasks of the change; the list is
+kept as the record of why they were made.
 
 1. **`proposal.md`, "Why"**: it says REA's documentation describes no network
    mode. REA 6.9.0 has `rea mcp --http` (section 1.5). The gateway is still
@@ -507,17 +506,17 @@ The seven in the change's `design.md` stand. The discovery adds:
    session ends, or keep it? Tool outputs written there (for example
    `decompile_all`) would otherwise vanish with the session. Proposed: keep, and
    leave cleanup to the operator at first.
-4. **Termination grace.** A fixed constant, or a setting? And how the unRAID
-   template gets a Docker stop timeout that fits it when checkpointing is on
+4. **Termination grace.** A fixed constant, or a setting? Decided for now:
+   constants (5 s, and 30 s with checkpointing). Still open: how the unRAID
+   template gets a Docker stop timeout of at least 40 s when checkpointing is on
    (how a template sets one is **UNVERIFIED**, task 5.1).
 5. **Checkpoint retention.** Operator cleanup only, documented, or a later
    janitor that removes keys unused for a period?
 
 ## 5. Decisions taken since discovery
 
-Taken by the maintainer, in conversation, on 2026-11-13. They are recorded here;
-the OpenSpec proposal, specs and tasks do not yet reflect them (see section 3,
-items 7 to 10).
+Taken by the maintainer, in conversation, on 2026-11-13. They are recorded here
+and are reflected in the OpenSpec proposal, design, specs and tasks (section 3).
 
 ### 5.1 Per-session working directory
 

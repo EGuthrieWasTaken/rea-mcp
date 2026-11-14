@@ -125,17 +125,53 @@ variable.
 - **THEN** the gateway exits non-zero and names `MAX_SESSIONS` in its error
 
 ### Requirement: Analysis-engine settings passthrough
-The gateway SHALL pass `REA_GHIDRA_STARTUP_TIMEOUT_MS` through to each REA
-child process unchanged when it is set, and SHALL apply `GHIDRA_MAX_HEAP` as
-the maximum Java heap of Ghidra processes started by REA.
+The gateway SHALL pass `REA_GHIDRA_STARTUP_TIMEOUT_MS` and
+`REA_GHIDRA_CHECKPOINT_DIR` through to each REA child process unchanged when
+they are set. `REA_GHIDRA_CHECKPOINT_DIR` SHALL be an absolute path and has no
+default; when it is unset the REA children run without checkpointing. A relative
+path SHALL cause the gateway to exit non-zero at startup, naming the variable.
 
 #### Scenario: Startup timeout passthrough
 - **WHEN** `REA_GHIDRA_STARTUP_TIMEOUT_MS` is set in the gateway's environment
 - **THEN** the same value is present in each REA child's environment
 
+#### Scenario: Checkpoint directory passthrough
+- **WHEN** `REA_GHIDRA_CHECKPOINT_DIR` is set to an absolute path in the gateway's environment
+- **THEN** the same value is present in every REA child's environment
+
+#### Scenario: Checkpointing off by default
+- **WHEN** `REA_GHIDRA_CHECKPOINT_DIR` is not set
+- **THEN** no REA child's environment contains it
+
+#### Scenario: Relative checkpoint directory
+- **WHEN** `REA_GHIDRA_CHECKPOINT_DIR` is set to a relative path
+- **THEN** the gateway exits non-zero and names `REA_GHIDRA_CHECKPOINT_DIR` in its error
+
+### Requirement: Ghidra heap setting
+The gateway SHALL apply `GHIDRA_MAX_HEAP` as the maximum Java heap of Ghidra
+processes started by REA, by setting `GHIDRA_HEADLESS_MAXMEM` to its value in
+each child's environment. `GHIDRA_MAX_HEAP` SHALL be a JVM heap size, a positive
+integer optionally followed by `k`, `m` or `g` in either case; any other value
+SHALL cause the gateway to exit non-zero at startup, naming the variable.
+
 #### Scenario: Heap setting applied
 - **WHEN** `GHIDRA_MAX_HEAP` is set to `8G` and REA launches Ghidra
-- **THEN** the Ghidra JVM runs with a maximum heap of 8 GiB
+- **THEN** each child's environment has `GHIDRA_HEADLESS_MAXMEM=8G` and the Ghidra JVM runs with a maximum heap of 8 GiB
+
+#### Scenario: Invalid heap value
+- **WHEN** `GHIDRA_MAX_HEAP` is set to a value that is not a JVM heap size, such as `lots`
+- **THEN** the gateway exits non-zero and names `GHIDRA_MAX_HEAP` in its error
+
+### Requirement: Child environment allowlist
+The gateway SHALL build each REA child's environment from an allowlist and SHALL
+NOT pass `REA_GHIDRA_PROJECT_PATH`, `REA_GHIDRA_SEED_FILE`,
+`REA_GHIDRA_NATIVEAOT_JAR`, `REA_GHIDRA_LANGUAGE_ID` or
+`REA_GHIDRA_DISABLED_ANALYZERS`, which REA refuses to combine with a checkpoint
+directory.
+
+#### Scenario: Settings that conflict with checkpointing are withheld
+- **WHEN** the gateway starts with `REA_GHIDRA_PROJECT_PATH` or any of the other four conflicting settings in its environment
+- **THEN** none of them is present in any REA child's environment
 
 ### Requirement: Structured logging
 The gateway SHALL write logs to stdout as one JSON object per line, each with
