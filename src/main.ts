@@ -32,7 +32,11 @@ async function main(): Promise<void> {
   }
 
   const logger = createLogger(config.logLevel);
-  const server = createGatewayServer({ logger, allowedHosts: config.allowedHosts });
+  const server = createGatewayServer({
+    logger,
+    allowedHosts: config.allowedHosts,
+    trustProxy: config.trustProxy,
+  });
 
   // Handlers go in before the port opens, so there is no moment at which a signal
   // meets the default action (an abrupt exit) instead of a clean shutdown.

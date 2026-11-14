@@ -7,6 +7,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { Logger } from "../logger.js";
 import { createHostCheck } from "./hosts.js";
+import { sourceIp } from "./source.js";
 
 /** Handles a /mcp request that has passed every pre-MCP check. */
 export type McpHandler = (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;
@@ -17,6 +18,8 @@ export interface GatewayServerOptions {
   mcp?: McpHandler | undefined;
   /** ALLOWED_HOSTS: hosts /mcp may be reached by. Empty or absent means no restriction. */
   allowedHosts?: readonly string[] | undefined;
+  /** TRUST_PROXY: take the client address from CF-Connecting-IP / X-Forwarded-For. */
+  trustProxy?: boolean | undefined;
 }
 
 const MCP_METHODS = ["POST", "GET", "DELETE"] as const;
@@ -41,6 +44,7 @@ const reply = (res: ServerResponse, status: number, headers: Record<string, stri
 export function createGatewayServer(options: GatewayServerOptions): Server {
   const { logger } = options;
   const hosts = createHostCheck(options.allowedHosts ?? []);
+  const trustProxy = options.trustProxy ?? false;
 
   const server = createServer((req, res) => {
     const started = performance.now();
@@ -56,7 +60,7 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
         path: route,
         status: res.statusCode,
         durationMs: Math.round(performance.now() - started),
-        sourceIp: req.socket.remoteAddress ?? "",
+        sourceIp: sourceIp(req, trustProxy),
       });
     });
 

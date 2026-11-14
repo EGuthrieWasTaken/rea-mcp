@@ -17,10 +17,10 @@ afterEach(async () => {
 });
 
 /** Start a gateway server on an ephemeral port, capturing its log lines. */
-const start = async (mcp?: McpHandler, allowedHosts?: readonly string[]) => {
+const start = async (mcp?: McpHandler, allowedHosts?: readonly string[], trustProxy?: boolean) => {
   const lines: string[] = [];
   const logger = createLogger("debug", (line) => lines.push(line));
-  const server = createGatewayServer({ logger, mcp, allowedHosts });
+  const server = createGatewayServer({ logger, mcp, allowedHosts, trustProxy });
   servers.push(server);
   await listen(server, 0);
   const port = (server.address() as AddressInfo).port;
@@ -161,6 +161,24 @@ describe("request logging", () => {
     expect(Object.keys(entry ?? {}).sort()).toEqual(
       ["durationMs", "level", "message", "method", "path", "sourceIp", "status", "time"],
     );
+  });
+
+  it("logs the socket peer, ignoring forwarding headers, unless the proxy is trusted", async () => {
+    const { port, entries } = await start((_req, res) => void res.writeHead(204).end());
+    await send(port, "POST", "/mcp", { "cf-connecting-ip": "198.51.100.5", "x-forwarded-for": "198.51.100.6" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(String(entries().find((entry) => entry.message === "request")?.sourceIp)).toMatch(/^(127\.0\.0\.1|::1)$/);
+  });
+
+  it("logs the client address from CF-Connecting-IP when the proxy is trusted", async () => {
+    const { port, entries } = await start((_req, res) => void res.writeHead(204).end(), undefined, true);
+    await send(port, "POST", "/mcp", { "cf-connecting-ip": "198.51.100.5", "x-forwarded-for": "198.51.100.6" });
+    await send(port, "POST", "/mcp", { "x-forwarded-for": "198.51.100.6, 10.0.0.1" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(entries().filter((entry) => entry.message === "request").map((entry) => entry.sourceIp)).toEqual([
+      "198.51.100.5",
+      "198.51.100.6",
+    ]);
   });
 
   it("logs health checks only at debug", async () => {
