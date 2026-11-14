@@ -1,0 +1,37 @@
+name: Node.js (pinned, hash-verified)
+description: >
+  Installs one exact Node.js release from nodejs.org, but only after its SHA-256 matches the value
+  recorded in the calling workflow, so a tampered or substituted archive never runs.
+  openspec:ci-gate#pinned-third-party-actions-and-tools
+
+inputs:
+  version:
+    description: Exact Node.js version without the leading "v", for example 24.22.3.
+    required: true
+  sha256:
+    description: SHA-256 of node-v<version>-linux-x64.tar.xz, as published in nodejs.org's SHASUMS256.txt.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install Node.js (pinned, hash-verified)
+      shell: bash
+      env:
+        NODE_VERSION: ${{ inputs.version }}
+        NODE_SHA256: ${{ inputs.sha256 }}
+      run: |
+        set -euo pipefail
+        archive="node-v${NODE_VERSION}-linux-x64.tar.xz"
+        cd "$RUNNER_TEMP"
+        curl -sSfL -o "$archive" "https://nodejs.org/dist/v${NODE_VERSION}/${archive}"
+        echo "${NODE_SHA256}  ${archive}" | sha256sum -c -
+        mkdir -p node
+        tar -xJf "$archive" -C node --strip-components=1
+        rm "$archive"
+        echo "$RUNNER_TEMP/node/bin" >> "$GITHUB_PATH"
+    - name: Show the Node.js and npm versions in use
+      shell: bash
+      run: |
+        node --version
+        npm --version

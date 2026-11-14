@@ -147,8 +147,10 @@ first `X-Forwarded-For` entry.
 - Gateway shutdown: stop listening, terminate all groups in parallel, exit 0.
   The budget is 10 s or less without checkpointing, inside Docker's 10 s default,
   so no custom stop timeout is needed. With checkpointing it is up to 40 s, so
-  the container's stop timeout must be raised to at least that; how the unRAID
-  template sets one is unverified (task 5.1).
+  the container's stop timeout must be raised to at least that. A template cannot
+  do it: unRAID applies one host-wide "Docker Stop Timeout" (default 10 s) when it
+  stops a container (`docs/DESIGN.md`, section 10.3), so the operator must raise
+  that setting.
 - Child stderr is line-buffered into the JSON log at `debug`/`warn`.
 
 ### D7. Keep-alives
@@ -210,12 +212,18 @@ Three stages on `node:24-bookworm-slim`, whose Node must be 24.22.1 or newer
   if set, must have no dot-prefixed element. REA's own `HOME` points at a
   writable directory under `/work`.
 - `/work` holds `home`, `sessions` and, when enabled, `checkpoints`.
-- `tshark` is used only to read capture files, never to capture, so no file
-  capabilities are set and `libcap2-bin` is not expected to be needed. This is
-  what makes `--cap-drop=ALL` workable.
+- `tshark` is used only to read capture files, never to capture. Debian's
+  `wireshark-common` depends on `libcap2-bin`, so it is installed
+  (`docs/DESIGN.md`, section 9.4). Whether `dumpcap` ends up with file
+  capabilities is unverified; task 4.6 checks that it has none and that
+  `tshark -r` works with `--cap-drop=ALL`.
 - The JDK major version follows the pinned Ghidra release notes. If Debian
   bookworm does not package that version, use the Eclipse Temurin apt
   repository or copy the JDK from an official `eclipse-temurin` image stage.
+  Task 4.2 found no JDK 21 in any bookworm pocket, so a fallback is needed;
+  `docs/DESIGN.md` section 9.3 records the Temurin release and a proposed form
+  (a hash-verified tarball in its own build stage), and open question 11 asks
+  whether to change base distribution instead.
 
 ### D10. Ghidra heap
 
@@ -332,11 +340,11 @@ canonical list with evidence and the task that closes each item.
   about Ghidra, not Ghidra's own).
 - That `GHIDRA_HEADLESS_MAXMEM` produces the expected maximum heap in the
   running Ghidra JVM.
-- That REA behaves correctly on Node 24.22.1 or newer (its admission rule was
-  verified; its behaviour on Node 24 was not run).
-- That Debian bookworm ships a full JDK of the needed major version, `tshark`
-  4.x, and whether it ships `rizin` at all; and that `node:24-bookworm-slim`
-  resolves to Node 24.22.1 or newer.
+- That REA's Ghidra-backed analysis behaves correctly on Node 24.22.1 or newer. Its
+  stdio server was run on Node 24.22.3 in CI (`docs/DESIGN.md`, section 2.1).
+- That the Temurin 21 JDK, which bookworm needs because it packages no JDK 21
+  (`docs/DESIGN.md`, section 9), runs in the image with REA and Ghidra; and that
+  `dumpcap` carries no file capabilities there.
 - That REA and Ghidra work with a read-only `/samples`, a read-only root
   filesystem and a non-root uid, writing only under `/work` and the temporary
   directory.
@@ -348,11 +356,14 @@ canonical list with evidence and the task that closes each item.
 - That, with checkpointing on, non-stock targets fail to open instead of
   falling back, and that a conversation can be blocked by its own idle child.
 - Whether unRAID's tooling or user shares leave checkpoint directories at mode
-  `700` owned by uid 99, and how a template sets a Docker stop timeout.
+  `700` owned by uid 99, and whether a `--stop-timeout` in `ExtraParams` is
+  honoured (a template has no other way to set one; `docs/DESIGN.md`, section 10.3).
 - Whether Claude Code and the claude.ai connector start a separate MCP session
   per conversation and send `DELETE /mcp` or call `close_binary` on exit.
-- Current unRAID / Community Apps template rules: attribute names for advanced
-  display, whether `ca_profile.xml` is expected, icon size guidance.
+- Whether the Community Apps scanner accepts this repository's template path
+  (`unraid/rea-mcp.xml`), the hardening flags in `ExtraParams`, a bare `Tools:`
+  category and the icon, and what icon size it expects (`docs/DESIGN.md`,
+  section 10).
 - That the Claude custom-connector UI accepts a static request header.
 - The exact Cloudflare idle/response timeout applicable to tunnels.
 
@@ -368,11 +379,18 @@ canonical list with evidence and the task that closes each item.
 5. Should the GHCR package be public (required for a template that pulls
    without registry credentials)?
 6. Is Rizin wanted if it is not in the distribution and would need a
-   third-party download?
+   third-party download? (Task 4.2: bookworm does not package it, so the image
+   omits it unless the maintainer says otherwise.)
 7. Is submission to Community Apps intended, or only a private template URL?
+   (Task 5.1: `ca_profile.xml` is required only for a submission, which also needs
+   a passing Validate and Scan on `ca.unraid.net`, a maintainer step.)
 8. Should `/work/sessions/<session-id>` be deleted when a session ends, or kept?
    Proposed: kept, with cleanup left to the operator.
 9. Should the termination grace periods (5 s, and 30 s with checkpointing) stay
    constants, or become settings? Decided for now: constants.
 10. Should checkpoint entries be pruned by the gateway, or is operator cleanup
     enough? Proposed: operator cleanup, documented.
+11. Bookworm packages no JDK 21 and no `rizin`. Keep bookworm and add a pinned
+    Temurin tarball (`docs/DESIGN.md` section 9.3), or move to Debian 13, which
+    packages JDK 21 but changes the `container-image` spec (section 9.5)?
+    Proposed: keep bookworm with the tarball, as the spec says.

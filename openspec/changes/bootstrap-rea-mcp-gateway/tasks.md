@@ -39,8 +39,8 @@ Ask the maintainer before pushing or publishing to GHCR.
 
 ## 4. Container image
 
-- [ ] 4.1 Choose and pin the Ghidra release; record version, URL, SHA-256, and the JDK major version from that release's notes in `docs/DESIGN.md`, with sources
-- [ ] 4.2 Verify Debian bookworm package availability and versions for a full JDK (with `javac`), `tshark`, `procps`, `binutils`, `tini`, and `rizin`, and that the `node:24-bookworm-slim` tag resolves to Node 24.22.1 or newer; record results and any fallback (for example Temurin) in `docs/DESIGN.md`
+- [x] 4.1 Choose and pin the Ghidra release; record version, URL, SHA-256, and the JDK major version from that release's notes in `docs/DESIGN.md`, with sources
+- [x] 4.2 Verify Debian bookworm package availability and versions for a full JDK (with `javac`), `tshark`, `procps`, `binutils`, `tini`, and `rizin`, and that the `node:24-bookworm-slim` tag resolves to Node 24.22.1 or newer; record results and any fallback (for example Temurin) in `docs/DESIGN.md`
 - [ ] 4.3 Write `docker/Dockerfile` (multi-stage, `linux/amd64`, Ghidra stage with hash verification, runtime as `99:100`, `WORKDIR /work`, volumes, `tini`, Node-based `HEALTHCHECK`, `GHIDRA_INSTALL_DIR=/opt/ghidra`, writable `/tmp`, no dot-prefixed `TMPDIR`, no `rea-agents setup`); verify the build succeeds and fails when `GHIDRA_SHA256` is altered
 - [ ] 4.4 Verify the `GHIDRA_MAX_HEAP` → `GHIDRA_HEADLESS_MAXMEM` mapping reaches Ghidra: check the Ghidra JVM's effective max heap in a running container
 - [ ] 4.5 Add an entrypoint check that reports clearly when `/work` or `/tmp` is not writable by uid 99, and that creates `/work/home` and `/work/sessions`; verify with a root-owned bind mount
@@ -49,7 +49,7 @@ Ask the maintainer before pushing or publishing to GHCR.
 
 ## 5. unRAID template
 
-- [ ] 5.1 Read the current unRAID Docker template and Community Apps guidelines and record the applicable rules (attribute names, advanced display mode, icon guidance, whether `ca_profile.xml` is expected, how a template sets a Docker stop timeout) with source links in `docs/DESIGN.md`
+- [x] 5.1 Read the current unRAID Docker template and Community Apps guidelines and record the applicable rules (attribute names, advanced display mode, icon guidance, whether `ca_profile.xml` is expected, how a template sets a Docker stop timeout) with source links in `docs/DESIGN.md`
 - [ ] 5.2 Create `unraid/icon.png` as original artwork at the size the guidelines recommend; verify it is a valid PNG with no third-party marks
 - [ ] 5.3 Write `unraid/rea-mcp.xml` with all metadata fields, the port, masked empty required `REA_MCP_API_KEY`, read-only `/samples`, `/work` default, and the eight advanced variables (`REA_GHIDRA_CHECKPOINT_DIR` empty by default); verify with `xmllint --noout`
 - [ ] 5.4 Write the template check script (required elements and `Config` entries, empty masked key, `ro` samples, lowercase repository, defaults equal to gateway defaults); verify it fails on a deliberately broken copy
@@ -59,7 +59,7 @@ Ask the maintainer before pushing or publishing to GHCR.
 
 - [x] 6.0 Add the CI skeleton ahead of the code: `ci.yml` with `secrets` (gitleaks, full history), `hygiene` (`scripts/check_hygiene.sh`), `openspec` (strict validation) and the `gate` job, Dependabot for actions, a PR template, and the importable ruleset `.github/rulesets/main.json`; verify each job passes on a pull request
 - [ ] 6.0a Maintainer imports `.github/rulesets/main.json` under Settings → Rules → Rulesets and confirms a direct push to `main` is rejected
-- [ ] 6.1 Add `.github/workflows/ci.yml` jobs for lint, typecheck, and tests on Node 24; add each to `gate`'s `needs`; verify they pass on a branch run
+- [x] 6.1 Add `.github/workflows/ci.yml` jobs for lint, typecheck, and tests on Node 24; add each to `gate`'s `needs`; verify they pass on a branch run
 - [ ] 6.2 Add the gitleaks job scanning full history (`fetch-depth: 0`) and the template XML check job; verify both pass and that each fails on a seeded violation in a scratch branch
 - [ ] 6.3 Add the image build job and run the smoke-test script from 4.7 against the built image; verify on a branch run
 - [ ] 6.4 Add GHCR publishing on `main` and version tags using the workflow token with least-privilege `permissions`, lowercase image name, and no stored secrets; **get maintainer approval before this job is enabled or first runs**

@@ -169,12 +169,15 @@ versions (**Ran**):
 | Admitted | no | **yes** | no | no | no | **yes** | **yes** | no | no | **yes** |
 
 - Node 24 is supported **only from 24.22.1**, and Node 25 is not supported. The
-  image's Node 24 base must resolve to 24.22.1 or newer. What the `node:24-*`
-  tag currently resolves to was not checked: **UNVERIFIED** (task 4.2/4.3).
-- REA was exercised on Node 22.23.4 only (**Ran**). Running it on Node 24 was
-  not possible in the discovery environment, so REA's behaviour on Node 24
-  beyond the admission rule is **UNVERIFIED**. The CI job on Node 24 and the
-  image smoke test (tasks 6.1, 4.7) are the first runs that can confirm it.
+  image's Node 24 base must resolve to 24.22.1 or newer. `node:24-bookworm-slim`
+  resolved to 24.22.3 on 2026-11-14 (section 9.2).
+- REA was exercised on Node 22.23.4 during discovery (**Ran**). On 2026-11-14 the
+  CI `test` job on Node 24.22.3 started the pinned `rea-agents` 6.9.0 through the
+  gateway, listed its tools, called one, and delivered
+  `REA_GHIDRA_STARTUP_TIMEOUT_MS` to it (`test/real-rea.test.ts`, 2 tests passed;
+  **Ran**, [run 43635764228](https://github.com/EGuthrieWasTaken/rea-mcp/actions/runs/43635764228)).
+  That covers REA's stdio server on Node 24. Its Ghidra-backed analysis on Node 24
+  is still **UNVERIFIED** (task 4.6).
 
 ### 2.2 How REA finds Ghidra and Java
 
@@ -206,12 +209,14 @@ versions (**Ran**):
   Ghidra 12.x from 12.1 upward is admitted, but a build other than 12.1.4 runs
   with an "unverified build" limitation recorded on the session (**Source**).
 - REA's docs state that 12.1 releases require JDK 21 or newer, that Ghidra 12.2
-  declares JDK 25 or newer, and that neither sets a maximum (**Docs**). That
-  agrees with the brief, but it is REA's statement about Ghidra, not Ghidra's
-  own: **UNVERIFIED** against Ghidra's release notes or its
-  `application.properties` (task 4.1).
-- The release URL and SHA-256 for Ghidra 12.1.4 are **UNVERIFIED** (task 4.1).
-  The pin that REA verified is 12.1.4 with JDK 21; choosing it is task 4.1's job.
+  declares JDK 25 or newer, and that neither sets a maximum (**Docs**). For 12.1.4
+  that agrees with Ghidra's own `application.properties` (`application.java.min=21`,
+  no maximum), confirmed in section 8. Ghidra 12.2's JDK 25 declaration was not
+  examined.
+- The release URL and SHA-256 for Ghidra 12.1.4 are recorded in section 8
+  (task 4.1). The pin is 12.1.4 with JDK 21, the pair REA verified. Only the
+  comparison of that SHA-256 with the value Ghidra publishes is still
+  **UNVERIFIED**.
 
 ### 2.4 Ghidra heap
 
@@ -450,13 +455,22 @@ kept as the record of why they were made.
 
 Each item names the task that should close it.
 
-1. Ghidra 12.1.4 download URL and SHA-256, and its declared JDK range from
-   Ghidra's own release notes or `application.properties` (task 4.1).
-2. That the official Linux x86_64 Ghidra archive ships the native decompiler (4.1, 4.6).
-3. Debian bookworm package availability and versions for a full JDK 21, `tshark`
-   4.x, `procps`, `binutils`, `tini` and `rizin`, and the Temurin fallback (4.2).
-4. What the `node:24-*` base tag resolves to, and REA's behaviour on Node 24
-   (4.2, 4.3, 6.1).
+1. That the SHA-256 recorded in section 8 equals the one published in Ghidra's
+   release notes for 12.1.4. It was computed from a single download, and the
+   published value could not be read from the build environment. The URL and the
+   JDK range (21 or newer, no maximum) are confirmed (task 4.1; **maintainer
+   check**).
+2. That the native decompiler in the official Linux x86_64 archive runs under uid
+   99 in the image. The archive ships it (section 8; **Ran**); running it is
+   task 4.6.
+3. That the Temurin 21.0.13+9 JDK, which bookworm needs because it packages no
+   JDK 21, runs on the image's Debian userland with REA and Ghidra. It was
+   verified by hash and contents but not executed (section 9.3; tasks 4.3, 4.6).
+   Also that `dumpcap` carries no file capabilities and `tshark -r` works under
+   `--cap-drop=ALL` (section 9.4; task 4.6).
+4. REA's Ghidra-backed analysis on Node 24 (task 4.6). Its stdio server was run on
+   Node 24.22.3 in CI (section 2.1). The base tag resolves to Node 24.22.3, read
+   from a tag name rather than by running `node` in the image (section 9.2).
 5. That the Ghidra JVM reports the expected maximum heap when
    `GHIDRA_HEADLESS_MAXMEM` is set (4.4).
 6. REA and Ghidra with a read-only `/samples`, a read-only root filesystem and a
@@ -468,8 +482,11 @@ Each item names the task that should close it.
 9. Which REA tools write to which paths, and whether any are confined to a root (8.3).
 10. That the SDK's streamable HTTP transport permits SSE comment frames and
     forced-SSE responses (3.6).
-11. unRAID / Community Apps template rules: attribute names, advanced display mode,
-    `ca_profile.xml`, icon size (5.1).
+11. Whether the Community Apps scanner finds a template at `unraid/rea-mcp.xml`
+    (the starter layout uses `templates/`), whether it accepts the hardening flags
+    in `ExtraParams` and a bare `Tools:` category, and what icon size it expects.
+    None is stated in the rules read in section 10; the submission flow's Validate
+    and Scan answers them (5.1; **maintainer check**).
 12. That the Claude custom-connector UI accepts a static request header, and the
     exact Cloudflare tunnel idle timeout (7.3, 8.3).
 13. Restoring a checkpoint with a real Ghidra: that it is fast, and that names,
@@ -500,18 +517,24 @@ The seven in the change's `design.md` stand. The discovery adds:
    D1/D2. The stdio relay remains the default; task 2.4 decides.
 2. **Ghidra pin.** 12.1.4 with JDK 21 is the combination REA verifies; newer 12.x
    releases are admitted with an "unverified build" limitation, and 12.2
-   reportedly needs JDK 25. Should the image pin the verified pair? Recommended:
-   yes, decided in task 4.1.
+   reportedly needs JDK 25. Should the image pin the verified pair? Decided in
+   task 4.1: yes (section 8).
 3. **Retention of `/work/sessions/<id>`.** Delete a session's directory when the
    session ends, or keep it? Tool outputs written there (for example
    `decompile_all`) would otherwise vanish with the session. Proposed: keep, and
    leave cleanup to the operator at first.
 4. **Termination grace.** A fixed constant, or a setting? Decided for now:
-   constants (5 s, and 30 s with checkpointing). Still open: how the unRAID
-   template gets a Docker stop timeout of at least 40 s when checkpointing is on
-   (how a template sets one is **UNVERIFIED**, task 5.1).
+   constants (5 s, and 30 s with checkpointing). The remaining question, how the
+   unRAID template gets a Docker stop timeout of at least 40 s when checkpointing
+   is on, is answered by task 5.1: it cannot. unRAID applies one host-wide setting,
+   so the operator must raise it (section 10.3).
 5. **Checkpoint retention.** Operator cleanup only, documented, or a later
    janitor that removes keys unused for a period?
+6. **Base distribution** (task 4.2). The spec fixes Debian bookworm, which packages
+   no JDK 21, so the JDK comes from a hash-verified Temurin tarball (section 9.3).
+   Debian 13 (trixie) packages JDK 21 (section 9.5), which would let the image take
+   the JDK from apt with Debian's security updates, but it changes the
+   `container-image` spec. Which does the maintainer want?
 
 ## 5. Decisions taken since discovery
 
@@ -667,3 +690,317 @@ Consequences:
   its own shutdown sequence. The spec needs an exact environment, a process-group
   kill and a configurable stdin-EOF grace, so task 3.11 spawns the child itself and
   reuses only the SDK's framing helpers (`ReadBuffer`, `serializeMessage`).
+
+## 8. Ghidra release pin (task 4.1)
+
+**Decision: pin Ghidra 12.1.4 with JDK 21.** It is the release REA 6.9.0 verifies
+against (section 2.3), so REA records no "unverified build" limitation, and JDK 21
+is the lowest JDK Ghidra itself declares for it.
+
+Gathered on 2026-11-14.
+
+| Item | Value |
+|---|---|
+| Release | Ghidra 12.1.4, `PUBLIC` build of 2026-09-21 |
+| Tag | `Ghidra_12.1.4_build`, commit `8b6bbb857accdfa20dc5b2f5dea471178c2e9fbc` (**Ran**: `git ls-remote --tags`) |
+| Archive | `ghidra_12.1.4_PUBLIC_20260921.zip`, 569,649,598 bytes |
+| `GHIDRA_URL` | `https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.4_build/ghidra_12.1.4_PUBLIC_20260921.zip` |
+| `GHIDRA_SHA256` | `ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db` |
+| `GHIDRA_VERSION` | `12.1.4` |
+| JDK | 21 or newer; Ghidra declares no maximum |
+
+### 8.1 Sources
+
+- **JDK range (Ghidra's own declaration).** `Ghidra/application.properties` at the
+  tag (**Source**) and inside the release archive (**Ran**, `unzip -p`) both say
+  `application.java.min=21`, `application.java.max=` (empty) and
+  `application.java.compiler=21`.
+- **README and release notes.** The README at the tag says "Install JDK 21 64-bit"
+  and links Eclipse Temurin (`adoptium.net`) as its JDK source (**Source**).
+  `ChangeHistory.md` at the tag opens with "Ghidra 12.1.4 Change History
+  (September 2026)" and contains no change to the JDK requirement; the statement
+  that Ghidra requires JDK 21 comes from an earlier release's entry (**Source**).
+- **Archive contents** (**Ran**): `unzip -t` reports no errors. The top-level
+  directory is `ghidra_12.1.4_PUBLIC/`, so the image build must move it to
+  `/opt/ghidra`, because `GHIDRA_INSTALL_DIR` must be the directory that holds
+  `support/analyzeHeadless`. `support/analyzeHeadless` is present. The native
+  decompiler `Ghidra/Features/Decompiler/os/linux_x86_64/decompile` is present, as
+  is the Windows one; there is no ARM64 build, which agrees with the image being
+  amd64-only. The embedded `application.revision.ghidra` equals the tag's commit.
+- **The filename.** It contains the build date and is not listed anywhere readable
+  from the build environment. It was found by requesting the release-download URL
+  for each date from 2026-09-05 to 2026-09-30: only `20260921` answered (a `302`
+  redirect to GitHub's release-asset host), and the archive's own
+  `application.build.date.short` is `20260921`.
+
+To reproduce:
+
+```bash
+git ls-remote --tags https://github.com/NationalSecurityAgency/ghidra Ghidra_12.1.4_build
+mkdir ghidra-probe && cd ghidra-probe
+curl -sSL -o ghidra.zip "<GHIDRA_URL from the table>"
+sha256sum ghidra.zip
+unzip -p ghidra.zip ghidra_12.1.4_PUBLIC/Ghidra/application.properties
+unzip -Z1 ghidra.zip | grep 'Decompiler/os/linux_x86_64/decompile$'
+```
+
+### 8.2 What is still UNVERIFIED
+
+- **The SHA-256 against Ghidra's published value.** The hash above was computed
+  from one HTTPS download. Ghidra's release notes list a SHA-256 for the archive,
+  but the release page, the expanded asset list and GitHub's API digest could not
+  be read from the environment used here (access to that repository is limited to
+  anonymous git reads), and no independent mirror was reachable. The matching
+  `application.revision.ghidra` shows the archive is consistent with the tag; it
+  does not show it is the archive Ghidra published. **Maintainer check:** compare
+  `GHIDRA_SHA256` with the SHA-256 in the release notes for `Ghidra_12.1.4_build`
+  before the first image is published, and correct it here if they differ.
+- **That the decompiler and headless analyzer run** under uid 99 with the chosen
+  JDK in the image (task 4.6).
+- **Ghidra 12.2 and JDK 25** (section 2.3) were not examined; the pin does not
+  depend on them.
+
+## 9. Image packages and base (task 4.2)
+
+Gathered on 2026-11-14. The Debian package indexes (`Packages.xz`, amd64) were
+downloaded from `deb.debian.org` and `security.debian.org` and parsed (**Ran**),
+against Debian 12.15 (`bookworm`, suite `oldstable`, `Release` dated 2026-07-11).
+The pockets read were `main`, `bookworm-updates`, `bookworm-backports` and
+`bookworm-security`.
+
+### 9.1 What bookworm packages
+
+| Needed | Found | Result |
+|---|---|---|
+| `binutils` (`objdump`) | 2.40-2 (`main`) | Available |
+| `procps` (`ps`) | 2:4.0.2-3 (`main`) | Available |
+| `tini` | 0.19.0-1+b3 (`main`) | Available |
+| `tshark` | 4.0.17-0+deb12u3 (`main` and `bookworm-security`) | Available, 4.x |
+| Full JDK 21 | **None in any pocket.** Only `openjdk-17-{jdk,jdk-headless,jre-headless}`: 17.0.19+10 in `main`, 17.0.21+9 in `bookworm-security` | **Not available**, so the fallback in 9.3 is needed |
+| `rizin` | **None in any pocket** | **Not available**; omitted from the image (the spec asks for it only when installable from the distribution) |
+
+`bookworm-updates` and `bookworm-backports` held none of the packages looked for.
+JDK 17 is below the minimum of 21 that Ghidra 12.1.4 declares (section 8), so it
+cannot serve.
+
+### 9.2 Base image
+
+`node:24-bookworm-slim` was resolved through the Docker Hub API (**Ran**):
+
+| Item | Value (2026-11-14) |
+|---|---|
+| Digest of the tag | `sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54` (tag updated 2026-11-11) |
+| Other tags with the same digest | `24.22.3-bookworm-slim`, `24.22-bookworm-slim`, `krypton-bookworm-slim` |
+| Platforms | `linux/amd64`, `linux/arm64`, `linux/ppc64le` |
+
+So the tag is Node **24.22.3**, which is at or above REA's floor of 24.22.1
+(section 2.1). The version comes from the tag name that shares the digest, not
+from running `node --version` in the image; the image build and smoke test
+(tasks 4.3, 4.7) are the first runs of it. The tag moves, so task 4.3 should
+reference the base by this digest as well as the tag for reproducible builds
+(`design.md`, Risks: "consider digest pinning"). A pinned digest goes stale and
+needs a Dependabot `docker` entry, which `.github/dependabot.yml` does not have yet.
+
+### 9.3 JDK fallback: Eclipse Temurin 21
+
+The fallback `design.md` D9 anticipated. Temurin's own API and the checksum file
+published next to the asset give the same SHA-256, and the archive was downloaded
+and hashed again here (**Ran**), giving the same value a third time.
+
+| Item | Value |
+|---|---|
+| Release | Temurin `jdk-21.0.13+9` (21.0.13+9-LTS), HotSpot, linux x64, image type `jdk` |
+| Archive | `OpenJDK21U-jdk_x64_linux_hotspot_21.0.13_9.tar.gz`, 207,858,352 bytes |
+| URL | `https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13%2B9/OpenJDK21U-jdk_x64_linux_hotspot_21.0.13_9.tar.gz` |
+| SHA-256 | `d7f5d5cf865a2902b70ff549b97586a7d3f234e016f041ab447ea740c7d66d1c` |
+| Sources | `https://api.adoptium.net/v3/assets/latest/21/hotspot?architecture=x64&image_type=jdk&os=linux&vendor=eclipse` (`checksum` field), and the `.sha256.txt` file beside the asset |
+| Contents (**Ran**, `tar -t`) | Top-level directory `jdk-21.0.13+9/`; contains `bin/java` and `bin/javac` |
+
+**Proposal for task 4.3** (the maintainer may prefer another form): fetch and verify
+this archive in its own build stage with `sha256sum -c`, exactly as for Ghidra,
+and copy the extracted directory into the runtime stage as `/opt/jdk` with
+`JAVA_HOME` pointing at it. The gateway already passes `JAVA_HOME` to the REA
+child when set (design D8), and REA reads it (section 2.2; whether Ghidra's own
+launcher does was not checked here). This
+needs no extra apt repository or signing key and no dependence on an
+`eclipse-temurin` image tag. Its cost is that nothing updates the JDK
+automatically: its security updates need a manual bump of the version and hash.
+The two other options in D9 were not examined: the Adoptium apt repository (its
+host was not reachable) and copying from an official `eclipse-temurin` image
+(whether a Debian-based tag exists was not checked).
+
+The archive was **not executed** here, so `java -version`, `javac -version` and
+compatibility with bookworm's glibc are **UNVERIFIED** until tasks 4.3 and 4.6 run
+it in the image. The image must keep the upstream licence notices (D12); the
+archive's licence files were not examined.
+
+### 9.4 `tshark` and `libcap2-bin` (corrects design D9)
+
+`design.md` D9 said `libcap2-bin` was not expected to be needed. In bookworm,
+`wireshark-common`, on which `tshark` depends, has an unconditional
+`Depends: libcap2-bin` (**Ran**: full `Depends` field), so it is installed with
+`tshark`. `wireshark-common` only recommends `wireshark | tshark`, and `tshark`
+itself does not depend on `libcap2-bin`. Whether `dumpcap` is given file
+capabilities in the image was not examined: **UNVERIFIED**. Task 4.6 must check
+that `getcap /usr/bin/dumpcap` prints nothing and that `tshark -r <file>` works
+under `--cap-drop=ALL`.
+
+### 9.5 Alternative: a Debian 13 base
+
+Not a change to the spec, which fixes bookworm; recorded as input to open question
+6 in section 4.3. The same indexes for Debian 13.7 (`trixie`, suite `stable`,
+`Release` dated 2026-09-12):
+
+| Package | trixie `main` |
+|---|---|
+| `openjdk-21-jdk` (also `-headless`) | 21.0.12.1+1-1~deb13u1 (`openjdk-25-jdk` 25.0.3+9-2~deb13u1 is also there) |
+| `tshark` | 4.4.18-0+deb13u1 |
+| `procps` | 2:4.0.4-9 |
+| `binutils` | 2.44-3 |
+| `tini` | 0.19.0-3+b8 |
+| `rizin` | none |
+
+`node:24-trixie-slim` exists on Docker Hub (**Ran**). A trixie base would give a
+distribution-maintained JDK 21 and drop the tarball pin. It was not tried: how REA,
+Ghidra and `tshark` 4.4 behave on it is **UNVERIFIED**, and it changes the
+`container-image` spec's base requirement and tasks 4.2 and 4.3.
+
+### 9.6 What is still UNVERIFIED
+
+- That the Temurin JDK runs in the image and satisfies REA's and Ghidra's checks
+  (tasks 4.3, 4.6).
+- That `dumpcap` has no file capabilities and `tshark -r` works with all
+  capabilities dropped (task 4.6).
+- The Node version actually reported inside the image (tasks 4.3, 4.7).
+- REA's Ghidra-backed analysis on Node 24 (section 2.1; task 4.6).
+
+## 10. unRAID and Community Apps rules (task 5.1)
+
+Gathered on 2026-11-14. **Source** means read in the page or file named; nothing
+here was run on an unRAID host.
+
+### 10.1 Sources
+
+| Source | Used for |
+|---|---|
+| [Community Applications](https://docs.unraid.net/community-applications/) (unRAID docs) | How CA works; maintenance expectations; names the submission portal as "the source of truth for submission requirements, repository XML guidance, supported fields" |
+| [Managing and customizing containers](https://docs.unraid.net/unraid-os/using-unraid-to/run-docker-containers/managing-and-customizing-containers/) (unRAID docs) | Container management and the advanced view |
+| [CA Application Policies](https://forums.unraid.net/topic/87144-ca-application-policies/) (a locked forum thread, redirecting to a slug ending `-privacy-policy`) | Moderation rules |
+| Submission docs at `https://ca.unraid.net/submit/help`, and its `/repository-xml`, `/repository-info-xml`, `/xml-field-reference` and `/builders` pages | Minimum template and `ca_profile.xml` rules; the public field catalog |
+| [`unraid/unraid-community-apps-starter`](https://github.com/unraid/unraid-community-apps-starter) at `01398ff8bd728ce92dd9595e33d8577299e0e971` | A complete example template, profile and layout |
+| [`unraid/webgui`](https://github.com/unraid/webgui) at `99e39027fbd50cf8c3768da0464bdd8de754a7f7`: `emhttp/plugins/dynamix.docker.manager/` (`include/CreateDocker.php`, `include/Helpers.php`, `include/DockerClient.php`, `DockerSettings.page`, `default.cfg`) and `emhttp/languages/en_US/helptext.txt` | How unRAID reads a template and stops a container |
+| [Docker Engine API v1.47](https://docs.docker.com/reference/api/engine/version/v1.47.yaml), operation `ContainerStop` | The meaning of the stop `t` parameter |
+
+The forum's "Docker Template XML Schema" thread, which the CA docs point to, was
+not read: its address was not found in the pages fetched. What it would cover
+(attribute names, display values) was taken from the starter repository and the
+`webgui` source instead.
+
+### 10.2 Template rules that apply to `unraid/rea-mcp.xml`
+
+- **Root and elements.** The root is `<Container version="2">`. The starter template
+  uses `Name`, `Repository`, `Registry`, `Network`, `Shell`, `Privileged`, `Icon`,
+  `WebUI`, `Overview`, `Support`, `Project`, `TemplateURL`, `Category` and `Config`
+  entries, and says "Either Support or Project is REQUIRED" (the spec asks for
+  both). CA's public field catalog marks only `Name` and `Repository` as minimum;
+  `Category`, `Icon`, `Overview`, `Project`, `Support` and `TemplateURL` as
+  recommended; and `ExtraParams`, `Network`, `Privileged`, `Registry`, `Shell`,
+  `WebUI`, `Config`, `License` and `ReadMe` as advanced, that is optional.
+- **`<Config>` attributes.** `Name`, `Target`, `Default`, `Mode`, `Description`,
+  `Type`, `Display`, `Required` and `Mask` (starter; the same set is what the
+  unRAID editor reads and writes). `Type` is `Port`, `Path` or `Variable` (and
+  `Device`). `Mode` is `tcp` or `udp` for a port and, for a path, one of `rw`,
+  `rw,slave`, `rw,shared`, `ro`, `ro,slave` or `ro,shared`, so `ro` on `/samples`
+  is valid. `Mask` is the editor's "Password Mask" option, which it branches on
+  when it equals `"true"`.
+- **Advanced display.** `Display="advanced"`. The values the editor handles are
+  `always`, `always-hide`, `advanced` and `advanced-hide`; `advanced` entries are
+  placed in a separate advanced section of the form, and the starter uses
+  `Display="advanced"` for its PUID and PGID variables.
+- **Icon.** `<Icon>` is recommended and the starter's example URLs end in `.png`;
+  unRAID downloads the URL and stores it as `<container>-icon.png`. CA's policy
+  forbids animated icons and asks that icons and descriptions be in good taste.
+  **No pixel size is stated** in any source read. The starter repository's own
+  icon is an SVG with a 256 by 256 view box, and the submission flow rejects the
+  placeholder if it is not replaced.
+- **`TemplateURL`** is "the canonical raw template URL used for identity and
+  review" and in the starter "the raw GitHub URL for that exact XML file".
+- **`WebUI`** is optional (advanced). The starter sets one; nothing requires it,
+  so the spec's "no `WebUI`" for an API-only container is allowed.
+- **`ExtraParams`** is advanced, and the catalog warns that CA's parser "security
+  checks may rewrite or reject unsafe values". Whether
+  `--cap-drop=ALL --security-opt=no-new-privileges:true` passes is not stated.
+- **`Category`** takes the `Parent:Sub` form; the starter and the format page
+  show `Tools:System` and `Tools:Utilities`, and the starter suggests the
+  Application Categorizer plugin for valid values. Whether the spec's bare
+  `Tools:` is accepted is not stated.
+- **Optional extras in the starter** that fit this project: `License`, `ReadMe`,
+  `Changes`, `Requires`. `MinVer` and `MaxVer` are left out because nothing has
+  been tested on any unRAID version.
+
+### 10.3 Host settings that affect the container (Settings, then Docker)
+
+- **Docker Stop Timeout.** `DOCKER_TIMEOUT`, default `10`, described as "The time
+  in seconds to allow a container to gracefully stop before forcing it to stop".
+  When unRAID stops a container from its UI it calls
+  `POST /containers/<id>/stop?t=<DOCKER_TIMEOUT>` (`DockerClient.php`,
+  `stopContainer`). **No template element or attribute sets a stop timeout**: the
+  CA field catalog has none. Docker's API describes `t` as the "number of seconds
+  to wait before killing the container" and does not say whether an explicit `t`
+  overrides a container's own `--stop-timeout`, so a `--stop-timeout` in
+  `ExtraParams` is not relied on (**UNVERIFIED**).
+- **Consequence for design D6.** With checkpointing off, the gateway shuts down
+  within the default 10 s. With checkpointing on, its budget is up to 40 s, so the
+  operator must raise Docker Stop Timeout to at least 40. Otherwise Docker kills
+  the container after 10 s, REA may be killed while saving, and edits since its last
+  save are lost (a kill does not corrupt a checkpoint; section 2.8). This is a
+  **manual step on the unRAID host**, to be stated in the README (task 7.2) and in
+  the checkpoint variable's description (task 5.3). Whether array stop and server
+  shutdown use the same value was not read, because that script is not in the
+  `webgui` repository (**UNVERIFIED**).
+- **Docker PID Limit.** `DOCKER_PID_LIMIT`, shipped empty, whose help text says it
+  limits "the number of PIDs that a docker can use. The default is 2048. Set to zero
+  for unlimited PIDs (not recommended)". Threads count against a PID limit, so
+  several Ghidra JVMs and their decompiler processes, up to `MAX_SESSIONS` of them,
+  could approach it. That is an inference and is **UNVERIFIED**; it belongs in the
+  memory and sizing guidance (tasks 7.2, 7.4) and in the end-to-end check (8.3).
+
+### 10.4 Community Apps submission and moderation
+
+- **Needed to submit** (submission help): a public, active repository; an
+  OSI-approved `LICENSE` at the root (the committed GPL-3.0 qualifies); a
+  `ca_profile.xml`; and valid template XML whose entry has a `<Repository>`. The
+  author runs Validate and Scan at `https://ca.unraid.net/submit/new` and then
+  submits for review. That portal needs a sign-in, so it is a **maintainer step**.
+- **`ca_profile.xml`** is **expected for a Community Apps submission and not for
+  installing from a private template URL.** The file name is exact, it sits in the
+  repository root, its root element is `<CommunityApplications>`, and a non-empty
+  `<Profile>` is required: without it "Community Apps will block submission
+  finalization". `<Icon>`, `<WebPage>` and `<Forum>` are recommended and the rest
+  optional. Task 5.5 decides whether to add it, given open question 7.
+- **Policies** (forum thread, locked, with a June 2025 note on submissions):
+  every template needs a reasonable description; `Project` and `Support` URLs must
+  not be referral or affiliate links; icons and descriptions must be in good taste
+  and icons must not be animated; a maintained application must be open source;
+  maintainers are expected to keep up with new unRAID releases and answer support
+  requests. For GHCR images, download counts come from a Docker Hub equivalent,
+  so none are shown without one.
+- The same thread says "All GitHub repositories / dockerHub repositories must have
+  2 Factor Authentication enabled, and an acknowledgement of this must be given".
+  Whether that still applies to the current portal is **UNVERIFIED**.
+- **Layout.** The starter and the builder guide put templates under `templates/`
+  ("one XML file per Docker app under `templates/`"), and the profile and icon in
+  the root. The spec puts this template at `unraid/rea-mcp.xml`.
+
+### 10.5 What is still UNVERIFIED
+
+- That the CA scanner finds a template at `unraid/rea-mcp.xml`. If it does not,
+  moving it under `templates/` is a change to the `unraid-template` spec.
+- That the scanner accepts the hardening flags in `ExtraParams` and a bare
+  `Tools:` category.
+- The icon size CA expects. The plan for task 5.2 is a 256 by 256 PNG, matching
+  the starter icon's view box, which is a choice and not a guideline.
+- Whether a `--stop-timeout` in `ExtraParams` is honoured, and whether array stop
+  and shutdown use the host's Docker Stop Timeout.
+- Whether the PID limit constrains several Ghidra sessions.
+- Whether the two-factor requirement in the policy thread still applies.
