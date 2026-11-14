@@ -340,8 +340,8 @@ canonical list with evidence and the task that closes each item.
   about Ghidra, not Ghidra's own).
 - That `GHIDRA_HEADLESS_MAXMEM` produces the expected maximum heap in the
   running Ghidra JVM.
-- That REA behaves correctly on Node 24.22.1 or newer (its admission rule was
-  verified; its behaviour on Node 24 was not run).
+- That REA's Ghidra-backed analysis behaves correctly on Node 24.22.1 or newer. Its
+  stdio server was run on Node 24.22.3 in CI (`docs/DESIGN.md`, section 2.1).
 - That the Temurin 21 JDK, which bookworm needs because it packages no JDK 21
   (`docs/DESIGN.md`, section 9), runs in the image with REA and Ghidra; and that
   `dumpcap` carries no file capabilities there.

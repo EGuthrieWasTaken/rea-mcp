@@ -171,10 +171,13 @@ versions (**Ran**):
 - Node 24 is supported **only from 24.22.1**, and Node 25 is not supported. The
   image's Node 24 base must resolve to 24.22.1 or newer. `node:24-bookworm-slim`
   resolved to 24.22.3 on 2026-11-14 (section 9.2).
-- REA was exercised on Node 22.23.4 only (**Ran**). Running it on Node 24 was
-  not possible in the discovery environment, so REA's behaviour on Node 24
-  beyond the admission rule is **UNVERIFIED**. The CI job on Node 24 and the
-  image smoke test (tasks 6.1, 4.7) are the first runs that can confirm it.
+- REA was exercised on Node 22.23.4 during discovery (**Ran**). On 2026-11-14 the
+  CI `test` job on Node 24.22.3 started the pinned `rea-agents` 6.9.0 through the
+  gateway, listed its tools, called one, and delivered
+  `REA_GHIDRA_STARTUP_TIMEOUT_MS` to it (`test/real-rea.test.ts`, 2 tests passed;
+  **Ran**, [run 43635764228](https://github.com/EGuthrieWasTaken/rea-mcp/actions/runs/43635764228)).
+  That covers REA's stdio server on Node 24. Its Ghidra-backed analysis on Node 24
+  is still **UNVERIFIED** (task 4.6).
 
 ### 2.2 How REA finds Ghidra and Java
 
@@ -465,8 +468,9 @@ Each item names the task that should close it.
    verified by hash and contents but not executed (section 9.3; tasks 4.3, 4.6).
    Also that `dumpcap` carries no file capabilities and `tshark -r` works under
    `--cap-drop=ALL` (section 9.4; task 4.6).
-4. REA's behaviour on Node 24 (4.3, 6.1). The base tag resolves to Node 24.22.3,
-   read from a tag name rather than by running `node` (section 9.2).
+4. REA's Ghidra-backed analysis on Node 24 (task 4.6). Its stdio server was run on
+   Node 24.22.3 in CI (section 2.1). The base tag resolves to Node 24.22.3, read
+   from a tag name rather than by running `node` in the image (section 9.2).
 5. That the Ghidra JVM reports the expected maximum heap when
    `GHIDRA_HEADLESS_MAXMEM` is set (4.4).
 6. REA and Ghidra with a read-only `/samples`, a read-only root filesystem and a
@@ -868,7 +872,7 @@ Ghidra and `tshark` 4.4 behave on it is **UNVERIFIED**, and it changes the
 - That `dumpcap` has no file capabilities and `tshark -r` works with all
   capabilities dropped (task 4.6).
 - The Node version actually reported inside the image (tasks 4.3, 4.7).
-- REA's behaviour on Node 24 (section 2.1; tasks 4.3, 6.1).
+- REA's Ghidra-backed analysis on Node 24 (section 2.1; task 4.6).
 
 ## 10. unRAID and Community Apps rules (task 5.1)
 
