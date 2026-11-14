@@ -99,7 +99,7 @@ export const closeHarnesses = async (): Promise<void> => {
 
 /** A real MCP client (the SDK's) connected to the harness gateway. */
 export const connectClient = async (
-  harness: Harness,
+  harness: { url: string },
   headers: Record<string, string> = { "x-api-key": HARNESS_KEY },
 ): Promise<{ client: Client; transport: StreamableHTTPClientTransport }> => {
   const transport = new StreamableHTTPClientTransport(new URL(harness.url), { requestInit: { headers } });

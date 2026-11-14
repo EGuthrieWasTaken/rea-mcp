@@ -60,8 +60,14 @@ interface Session {
   readonly id: string;
   readonly child: ReaChild;
   readonly transport: StreamableHTTPServerTransport;
-  /** Requests the client has sent that REA has not answered yet. */
-  readonly inFlight: Set<RequestId>;
+  /** Requests the client has sent that REA has not answered yet, each with the progress token it sent, if any. */
+  readonly inFlight: Map<RequestId, string | number | undefined>;
+  /**
+   * progressToken -> the request it belongs to. REA's progress notifications carry only
+   * the token, and the SDK puts a notification on a request's stream only when told which
+   * request it relates to: without this they would be dropped.
+   */
+  readonly progressTokens: Map<string | number, RequestId>;
   /** performance.now() of the last request or answer; the idle timer counts from here. */
   lastActivity: number;
   ended: boolean;
@@ -290,7 +296,8 @@ export class SessionManager {
       id: sessionId,
       child,
       transport,
-      inFlight: new Set(),
+      inFlight: new Map(),
+      progressTokens: new Map(),
       lastActivity: performance.now(),
       ended: false,
     };
@@ -313,7 +320,7 @@ export class SessionManager {
       if (
         (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) &&
         message.id !== undefined &&
-        session.inFlight.delete(message.id)
+        this.finish(session, message.id)
       ) {
         session.lastActivity = performance.now();
       }
@@ -364,7 +371,14 @@ export class SessionManager {
 
   /** A message from REA, towards the client. */
   private deliver(session: Session, message: JSONRPCMessage): void {
-    session.transport.send(message).catch((error: unknown) => {
+    // Progress goes to the stream of the request that asked for it, found by its token.
+    // Anything else (logging, list changes) has no request and goes to the standalone stream.
+    let related: RequestId | undefined;
+    if (isJSONRPCNotification(message) && message.method === "notifications/progress") {
+      const token = message.params?.progressToken;
+      if (typeof token === "string" || typeof token === "number") related = session.progressTokens.get(token);
+    }
+    session.transport.send(message, related === undefined ? undefined : { relatedRequestId: related }).catch((error: unknown) => {
       // The client has gone away (its stream is closed): there is nobody to tell.
       this.logger.debug("dropped a message for a closed stream", {
         sessionId: session.id,
@@ -377,13 +391,25 @@ export class SessionManager {
   private track(session: Session, message: JSONRPCMessage): void {
     session.lastActivity = performance.now();
     if (isJSONRPCRequest(message)) {
-      session.inFlight.add(message.id);
+      const token = message.params?._meta?.progressToken;
+      session.inFlight.set(message.id, token);
+      if (token !== undefined) session.progressTokens.set(token, message.id);
     } else if (isJSONRPCNotification(message) && message.method === "notifications/cancelled") {
       // The client has given up on that request and REA need not answer it, so it must
-      // not keep the session from being idle forever.
+      // not keep the session from being idle forever. The notification itself is still
+      // relayed to REA (see forward), which can then stop the work.
       const requestId = message.params?.requestId;
-      if (typeof requestId === "string" || typeof requestId === "number") session.inFlight.delete(requestId);
+      if (typeof requestId === "string" || typeof requestId === "number") this.finish(session, requestId);
     }
+  }
+
+  /** A request is over (answered or cancelled): forget it and its progress token. */
+  private finish(session: Session, id: RequestId): boolean {
+    if (!session.inFlight.has(id)) return false;
+    const token = session.inFlight.get(id);
+    session.inFlight.delete(id);
+    if (token !== undefined) session.progressTokens.delete(token);
+    return true;
   }
 
   /** End every session that has had no activity and nothing in flight for the idle timeout. */
@@ -418,8 +444,9 @@ export class SessionManager {
       this.logger.warn("REA stderr", { sessionId: session.id, stream: "stderr", line });
     }
     // Every call still waiting for REA gets an error, not silence, before the session goes.
-    const pending = [...session.inFlight];
+    const pending = [...session.inFlight.keys()];
     session.inFlight.clear();
+    session.progressTokens.clear();
     await Promise.allSettled(
       pending.map((id) => session.transport.send({ jsonrpc: "2.0", id, error: { code: -32603, message: "REA exited" } })),
     );
