@@ -1496,3 +1496,18 @@ one the maintainer approved (the JDK archive in the `secret-hygiene` fetch scena
 The design's "Unverified assumptions" section was refreshed to the current state (it is a planning
 artifact, not a spec).
 
+## 17. Acceptance checks 8.1 and 8.2
+
+Run on 2026-11-14 on the final tree of the working branch (**Ran**).
+
+- **8.1, secrets.** `gitleaks detect` with `.gitleaks.toml` over all 23 commits, and over the working tree with
+  `--no-git`: no leaks. A grep pass for 32-or-more-character hex strings and 40-or-more-character base64-like strings in
+  every tracked file (the lockfile and `LICENSE` excluded) finds only the five documented 64-character pins
+  and digests (Ghidra, the JDK, the base image, gitleaks, Node) and the public npm integrity string of
+  `rea-agents`; the commits of this branch add only the Ghidra, JDK and base-image values.
+- **8.2, binaries and samples.** `git ls-files --eol` shows one binary, `unraid/icon.png`; no tracked path lies under
+  `samples/` or `work/`; `scripts/check_hygiene.sh` passes; `git check-ignore` confirms that `samples/`, `work/`,
+  `*.pcap`, `*.pcapng`, `*.gpr`, `*.rep`, `*.tns` and `.env` are ignored.
+- **Tests.** As a non-root user in a Node 24.22.3 container: `npm run lint` and `npm run typecheck` clean, `npm test`
+  359 passed, none skipped (the one skip of a root run is `it.skipIf(running as root)`).
+
