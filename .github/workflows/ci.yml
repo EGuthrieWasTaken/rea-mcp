@@ -113,16 +113,27 @@ jobs:
       - run: npm ci
       - run: npm test
 
-  # Jobs still to come as the code lands (openspec change bootstrap-rea-mcp-gateway, group 6):
-  # unraid-template, image build + smoke test. Each must be added to `needs:` below when it is
-  # added here.
+  # openspec:unraid-template#automated-template-validation. Standard library only, so nothing is
+  # installed or downloaded. The checker parses the XML strictly (a malformed file fails it) and reads the
+  # gateway's defaults from src/config.ts. The self-test seeds deliberate violations and requires each to
+  # be rejected, so the check cannot quietly stop checking.
+  template:
+    name: template
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check unraid/rea-mcp.xml and unraid/icon.png
+        run: python3 scripts/check_template.py
+      - name: Every seeded violation must be rejected
+        run: python3 scripts/check_template.py --self-test
 
   # ---- The required check: depends on every job above, tolerates skips ----
   # openspec:ci-gate#branch-protection-and-the-gate-job
   gate:
     name: gate
     if: always()
-    needs: [secrets, hygiene, openspec, lint, typecheck, test]
+    needs: [secrets, hygiene, openspec, lint, typecheck, test, template]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
