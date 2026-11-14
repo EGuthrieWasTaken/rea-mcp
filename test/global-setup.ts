@@ -16,4 +16,6 @@ export default function setup(): void {
     cwd: root,
     stdio: "pipe",
   });
+  // Test fixtures (the fake REA) are compiled beside it, into .test-build/fixtures.
+  execFileSync(process.execPath, [tsc, "-p", "tsconfig.fixtures.json"], { cwd: root, stdio: "pipe" });
 }
