@@ -15,6 +15,15 @@ const start = (env: Record<string, string>): GatewayProcess => {
   return gateway;
 };
 
+const alive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const connects = (port: number): Promise<boolean> =>
   new Promise((resolve) => {
     const socket = connect({ port, host: "127.0.0.1" });
@@ -64,6 +73,39 @@ describe("the running gateway process", () => {
     expect(Number(limited.headers.get("retry-after"))).toBeGreaterThanOrEqual(1);
     expect(JSON.stringify(gateway.lines)).not.toContain(key);
   });
+
+  it("stops the real REA of every live session, then exits 0 well inside the 10 second budget", async () => {
+    const [port, key] = [await freePort(), randomKey()];
+    const gateway = start({ REA_MCP_API_KEY: key, PORT: String(port) });
+    await gateway.waitForLog((line) => line.message === "listening");
+
+    const initialize = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "shutdown-test", version: "0" } },
+    };
+    const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json, text/event-stream", "x-api-key": key },
+      body: JSON.stringify(initialize),
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("mcp-session-id")).not.toBeNull();
+    await response.text();
+
+    const started = gateway.lines.find((line) => line.message === "session started");
+    const pid = started?.pid;
+    expect(typeof pid).toBe("number");
+    expect(alive(pid as number)).toBe(true);
+
+    const began = Date.now();
+    expect(await gateway.stop("SIGTERM")).toEqual({ code: 0, signal: null });
+    expect(Date.now() - began).toBeLessThan(8_000);
+    await expect.poll(() => alive(pid as number), { timeout: 5_000 }).toBe(false);
+    expect(gateway.lines.map((line) => line.message)).toEqual(expect.arrayContaining(["shutting down", "REA stopped"]));
+    expect(JSON.stringify(gateway.lines)).not.toContain(key);
+  }, 30_000);
 
   it("exits 0 on SIGINT too", async () => {
     const [port, key] = [await freePort(), randomKey()];

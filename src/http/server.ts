@@ -155,10 +155,14 @@ export function listen(server: Server, port: number): Promise<void> {
   });
 }
 
-/** Stop accepting connections and end open ones; resolves when the server is closed. */
-export function shutdown(server: Server): Promise<void> {
-  return new Promise((resolve) => {
-    server.close(() => resolve());
-    server.closeAllConnections();
-  });
+/**
+ * Stop accepting connections at once, run `drain` (which ends the sessions that hold
+ * streams open), then end every remaining connection. Resolves when the server is closed.
+ */
+export async function shutdown(server: Server, drain?: () => Promise<void>): Promise<void> {
+  const closed = new Promise<void>((resolve) => server.close(() => resolve()));
+  server.closeIdleConnections();
+  await drain?.();
+  server.closeAllConnections();
+  await closed;
 }

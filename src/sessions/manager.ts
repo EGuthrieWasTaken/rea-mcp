@@ -28,7 +28,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { McpHandler } from "../http/server.js";
 import type { Logger } from "../logger.js";
-import { ReaChild, type ChildExit } from "../rea/child.js";
+import { ReaChild, TERM_WAIT_MS, type ChildExit } from "../rea/child.js";
 import type { ReaLaunch } from "../rea/launch.js";
 
 export interface SessionManagerOptions {
@@ -36,6 +36,10 @@ export interface SessionManagerOptions {
   launch: ReaLaunch;
   /** Each session's working directory is created as <sessionsDir>/<session-id>. */
   sessionsDir: string;
+  /** How long REA gets to exit after its stdin closes before it is signalled. Default 5 s; 30 s with checkpointing. */
+  terminationGraceMs?: number;
+  /** How long REA gets after SIGTERM before SIGKILL. Default 2 s. */
+  termWaitMs?: number;
   /** SESSION_IDLE_TIMEOUT_SEC in milliseconds. A session with no activity and nothing in flight this long is ended. Default 900 000. */
   idleTimeoutMs?: number;
   /** How often idle sessions are looked for. Default a tenth of the timeout, between 1 s and 30 s. */
@@ -116,12 +120,15 @@ export class SessionManager {
   /** Sessions whose slot is reserved but which are not registered yet (still starting). */
   private starting = 0;
   private readonly reaper: NodeJS.Timeout;
+  private shuttingDown = false;
 
   constructor(options: SessionManagerOptions) {
     this.logger = options.logger;
     this.launch = options.launch;
     this.sessionsDir = options.sessionsDir;
     this.options = {
+      terminationGraceMs: options.terminationGraceMs ?? 5_000,
+      termWaitMs: options.termWaitMs ?? TERM_WAIT_MS,
       idleTimeoutMs: options.idleTimeoutMs ?? 900_000,
       reapIntervalMs: 0,
       maxSessions: options.maxSessions ?? 4,
@@ -150,8 +157,14 @@ export class SessionManager {
     return this.attempts;
   }
 
-  /** Stop looking for idle sessions, then end every session, killing its REA process. */
+  /** From now on no new session is started; sessions already live are unaffected until closeAll. */
+  beginShutdown(): void {
+    this.shuttingDown = true;
+  }
+
+  /** Stop looking for idle sessions, then end every session, in parallel, stopping its REA process. */
   async closeAll(): Promise<void> {
+    this.beginShutdown();
     clearInterval(this.reaper);
     await Promise.all([...this.sessions.values()].map((session) => this.end(session, "gateway shutdown")));
   }
@@ -191,6 +204,10 @@ export class SessionManager {
   }
 
   private async create(req: IncomingMessage, res: ServerResponse, request: JSONRPCRequest, parsed: unknown): Promise<void> {
+    // Shutting down: refuse, and start nothing.
+    if (this.shuttingDown) {
+      return jsonError(res, 503, -32000, "Service unavailable", request.id, { "Retry-After": this.options.retryAfterSec });
+    }
     // Reserve the slot BEFORE anything asynchronous (and so before spawning): this check
     // and the increment form one synchronous step, so concurrent initialize requests
     // cannot overshoot the cap. Over the cap there is no eviction: the newcomer waits.
@@ -254,7 +271,8 @@ export class SessionManager {
       for (const line of child.stderrLines) {
         this.logger.warn("REA stderr", { sessionId, pid: child.pid, stream: "stderr", line });
       }
-      await child.terminate();
+      // REA never finished starting, so there is nothing for it to save: no grace.
+      await child.terminate(0, this.options.termWaitMs);
       await rm(dir, { recursive: true, force: true });
       return jsonError(res, 502, -32603, "Bad gateway", request.id);
     }
@@ -414,7 +432,20 @@ export class SessionManager {
     session.ended = true;
     this.sessions.delete(session.id);
     this.logger.info("session ended", { sessionId: session.id, reason });
-    await Promise.allSettled([session.transport.close(), session.child.terminate()]);
+    await Promise.allSettled([session.transport.close(), this.stopChild(session)]);
+  }
+
+  /** The graceful stop of a session's REA: see ReaChild.terminate. */
+  private async stopChild(session: Session): Promise<void> {
+    const how = await session.child.terminate(this.options.terminationGraceMs, this.options.termWaitMs);
+    const exit = session.child.exitStatus;
+    this.logger.info("REA stopped", {
+      sessionId: session.id,
+      pid: session.child.pid,
+      reason: how,
+      exitCode: exit?.code ?? null,
+      signal: exit?.signal ?? null,
+    });
   }
 }
 

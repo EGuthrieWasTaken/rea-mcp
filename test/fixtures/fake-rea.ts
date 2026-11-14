@@ -5,8 +5,11 @@
 //   --fail-start              exit 3 immediately, before answering anything
 //   --startup-delay-ms=N      wait N ms before reading stdin
 //   --ignore-signals          ignore stdin EOF and SIGTERM: only SIGKILL stops it
-//   --exit-delay-ms=N         after stdin EOF or SIGTERM, wait N ms, then exit 0
+//   --ignore-eof              ignore stdin EOF only: SIGTERM still stops it
+//   --exit-delay-ms=N         after stdin EOF or SIGTERM, wait N ms, then exit
 //                             (stands in for REA saving a checkpoint on close)
+//
+// Exit codes tell a test what stopped it: 0 after stdin EOF, 143 after SIGTERM.
 //
 // Tools: echo, slow, crash, env, cwd, pid, grandchild, log, stats.
 import { spawn } from "node:child_process";
@@ -164,13 +167,13 @@ if (flag("fail-start")) {
 }
 
 const exitDelay = numberFlag("exit-delay-ms") ?? 0;
-const shutDown = (): void => {
+const shutDown = (code: number): void => {
   if (flag("ignore-signals")) return;
-  setTimeout(() => process.exit(0), exitDelay);
+  setTimeout(() => process.exit(code), exitDelay);
 };
 
-process.on("SIGTERM", shutDown);
-if (flag("ignore-signals")) setInterval(() => undefined, 1_000); // keep the event loop alive after EOF
+process.on("SIGTERM", () => shutDown(143));
+if (flag("ignore-signals") || flag("ignore-eof")) setInterval(() => undefined, 1_000); // stay alive after EOF
 
 const start = (): void => {
   process.stderr.write("fake-rea: ready\n");
@@ -183,7 +186,9 @@ const start = (): void => {
       handle(message);
     }
   });
-  process.stdin.on("end", shutDown);
+  process.stdin.on("end", () => {
+    if (!flag("ignore-eof")) shutDown(0);
+  });
 };
 
 const startupDelay = numberFlag("startup-delay-ms");

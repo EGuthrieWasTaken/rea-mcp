@@ -20,6 +20,11 @@ export interface ChildExit {
 const STDERR_TAIL_LINES = 20;
 /** After the process exits, wait this long for its last output before reporting it. */
 const DRAIN_MS = 100;
+/** After SIGTERM, how long the child gets before it is killed. */
+export const TERM_WAIT_MS = 2_000;
+
+/** How a child came to stop: on its own, after SIGTERM, or only by SIGKILL. */
+export type Termination = "exited" | "terminated" | "killed";
 
 export class ReaChild {
   /** Called for each JSON-RPC message the child writes. */
@@ -136,9 +141,13 @@ export class ReaChild {
     this.proc.stdin?.end();
   }
 
-  /** Signal the child's whole process group. False if there was nothing to signal. */
+  /**
+   * Signal the child's whole process group. This still works after the leader has
+   * exited, because what it started (Ghidra) may outlive it. False if the group is
+   * already gone.
+   */
   signalGroup(signal: NodeJS.Signals): boolean {
-    if (this.pid === undefined || this.exit !== undefined) return false;
+    if (this.pid === undefined) return false;
     try {
       process.kill(-this.pid, signal);
       return true;
@@ -150,10 +159,49 @@ export class ReaChild {
     }
   }
 
-  /** Stop the child and everything it started. Task 3.14 replaces this with the graceful sequence. */
-  async terminate(): Promise<void> {
+  /** How the child exited, once it has. */
+  get exitStatus(): ChildExit | undefined {
+    return this.exit;
+  }
+
+  /**
+   * Stop the child and everything it started (spec: session-management, "Reliable
+   * child termination"): close its stdin, which REA treats as a request to shut down
+   * and answers with its own cleanup (stopping Ghidra, saving a checkpoint); wait up to
+   * `graceMs`; then SIGTERM the whole process group and wait `termWaitMs`; then SIGKILL
+   * it. Finally, whatever the leader did, SIGKILL the group once more so nothing it
+   * started outlives it. A killed process is dead even before its parent reaps it, so
+   * this does not wait for that.
+   *
+   * (The group id is the leader's pid. Signalling it after the leader is gone could in
+   * principle reach a recycled pid; the window is the milliseconds since this child
+   * exited, which is negligible beside the cost of leaving Ghidra running.)
+   */
+  async terminate(graceMs: number, termWaitMs: number = TERM_WAIT_MS): Promise<Termination> {
+    let outcome: Termination = "exited";
+    this.closeStdin();
+    if (!(await this.waitForExit(graceMs))) {
+      outcome = "terminated";
+      this.signalGroup("SIGTERM");
+      if (!(await this.waitForExit(termWaitMs))) {
+        outcome = "killed";
+        this.signalGroup("SIGKILL");
+        await this.exited;
+      }
+    }
     this.signalGroup("SIGKILL");
-    await this.exited;
+    return outcome;
+  }
+
+  private waitForExit(ms: number): Promise<boolean> {
+    if (this.exit !== undefined) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(false), ms);
+      void this.exited.then(() => {
+        clearTimeout(timer);
+        resolve(true);
+      });
+    });
   }
 
   /** The last few lines the child wrote to stderr, for diagnostics. */

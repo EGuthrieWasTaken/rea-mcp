@@ -22,6 +22,11 @@ export interface Config {
    * tests can point it elsewhere, and is deliberately not a documented setting.
    */
   readonly workDir: string;
+  /**
+   * REA_GHIDRA_CHECKPOINT_DIR: where REA saves Ghidra analysis. Unset means no
+   * checkpointing, which is the default. When set, children get a longer shutdown grace.
+   */
+  readonly checkpointDir: string | undefined;
 }
 
 /**
@@ -118,6 +123,15 @@ const workDir = (env: Environment): string => {
   return raw.length > 1 ? raw.replace(/\/+$/, "") : raw;
 };
 
+const checkpointDir = (env: Environment): string | undefined => {
+  const raw = read(env, "REA_GHIDRA_CHECKPOINT_DIR");
+  if (raw === undefined) return undefined;
+  if (!raw.startsWith("/") || raw.includes("\0")) {
+    throw new ConfigError("REA_GHIDRA_CHECKPOINT_DIR", "must be an absolute path");
+  }
+  return raw;
+};
+
 export function loadConfig(env: Environment): Config {
   return {
     port: integer(env, "PORT", 1, 65535),
@@ -127,5 +141,6 @@ export function loadConfig(env: Environment): Config {
     allowedHosts: allowedHosts(env),
     logLevel: logLevel(env),
     workDir: workDir(env),
+    checkpointDir: checkpointDir(env),
   };
 }

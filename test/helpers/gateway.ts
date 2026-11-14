@@ -25,6 +25,10 @@ export interface HarnessOptions {
   maxBodyBytes?: number;
   keepAliveMs?: number;
   maxSessions?: number;
+  /** How long REA gets to exit after its stdin closes (default 5 s). */
+  terminationGraceMs?: number;
+  /** How long REA gets after SIGTERM before SIGKILL (default 2 s). */
+  termSignalWaitMs?: number;
   idleTimeoutMs?: number;
   reapIntervalMs?: number;
   /** Variables the gateway's own environment holds, from which the child env is built. */
@@ -60,6 +64,8 @@ export const startHarness = async (options: HarnessOptions = {}): Promise<Harnes
     ...(options.maxBodyBytes === undefined ? {} : { maxBodyBytes: options.maxBodyBytes }),
     ...(options.keepAliveMs === undefined ? {} : { keepAliveMs: options.keepAliveMs }),
     ...(options.maxSessions === undefined ? {} : { maxSessions: options.maxSessions }),
+    ...(options.terminationGraceMs === undefined ? {} : { terminationGraceMs: options.terminationGraceMs }),
+    ...(options.termSignalWaitMs === undefined ? {} : { termWaitMs: options.termSignalWaitMs }),
     ...(options.idleTimeoutMs === undefined ? {} : { idleTimeoutMs: options.idleTimeoutMs }),
     ...(options.reapIntervalMs === undefined ? {} : { reapIntervalMs: options.reapIntervalMs }),
   });

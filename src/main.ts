@@ -10,6 +10,7 @@ import { KeyError, loadKeys } from "./keys.js";
 import { createLogger } from "./logger.js";
 import { productionLaunch, ReaNotInstalledError, type ReaLaunch } from "./rea/launch.js";
 import { SessionManager } from "./sessions/manager.js";
+import { shutdownTiming } from "./sessions/timing.js";
 
 // A closed stdout (for example a log pipe that went away) must not crash us.
 process.stdout.on("error", () => undefined);
@@ -67,6 +68,8 @@ async function main(): Promise<void> {
     return;
   }
 
+  const { graceMs, budgetMs } = shutdownTiming(config.checkpointDir !== undefined);
+
   // Only digests of the keys are kept from here on.
   const limiter = createFailureLimiter();
   const sessions = new SessionManager({
@@ -75,6 +78,7 @@ async function main(): Promise<void> {
     sessionsDir,
     maxSessions: config.maxSessions,
     idleTimeoutMs: config.sessionIdleTimeoutSec * 1000,
+    terminationGraceMs: graceMs,
   });
   const server = createGatewayServer({
     logger,
@@ -92,13 +96,20 @@ async function main(): Promise<void> {
     if (stopping) return;
     stopping = true;
     logger.info("shutting down", { reason: signal });
-    void sessions
-      .closeAll()
-      .then(() => shutdown(server))
-      .then(() => {
-        limiter.close();
-        process.exitCode = 0;
-      });
+    // No new sessions from here on; the server stops accepting connections, the live
+    // sessions are stopped in parallel, and only then are the remaining connections cut.
+    sessions.beginShutdown();
+    // The sequence guarantees a SIGKILL within grace + 2 s, so this is a safety net only.
+    const deadline = setTimeout(() => {
+      logger.error("shutdown deadline exceeded", { reason: `${budgetMs} ms` });
+      process.exit(1);
+    }, budgetMs);
+    deadline.unref();
+    void shutdown(server, () => sessions.closeAll()).then(() => {
+      clearTimeout(deadline);
+      limiter.close();
+      process.exitCode = 0;
+    });
   };
   process.once("SIGTERM", () => stop("SIGTERM"));
   process.once("SIGINT", () => stop("SIGINT"));

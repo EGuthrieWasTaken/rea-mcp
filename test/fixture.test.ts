@@ -146,11 +146,11 @@ describe("fake REA: dying and refusing to die", () => {
     expect(Date.now() - began).toBeLessThan(1_500);
   });
 
-  it("exits with 0 on SIGTERM", async () => {
+  it("exits with 143 on SIGTERM, so a test can tell it from an exit after stdin EOF", async () => {
     const rea = launch();
     await rea.initialize();
     rea.signal("SIGTERM");
-    expect(await rea.exited).toEqual({ code: 0, signal: null });
+    expect(await rea.exited).toEqual({ code: 143, signal: null });
   });
 
   it("takes a configurable time to exit after stdin closes", async () => {
@@ -160,6 +160,15 @@ describe("fake REA: dying and refusing to die", () => {
     rea.endStdin();
     expect((await rea.exited).code).toBe(0);
     expect(Date.now() - began).toBeGreaterThanOrEqual(450);
+  });
+
+  it("can ignore stdin EOF while still obeying SIGTERM", async () => {
+    const rea = launch(["--ignore-eof"]);
+    await rea.initialize();
+    rea.endStdin();
+    expect(await Promise.race([rea.exited.then(() => "exited"), sleep(400).then(() => "alive")])).toBe("alive");
+    rea.signal("SIGTERM");
+    expect(await rea.exited).toEqual({ code: 143, signal: null });
   });
 
   it("ignores both stdin EOF and SIGTERM, and only SIGKILL stops it", async () => {
