@@ -35,8 +35,8 @@ node <package-root>/scripts/rea.mjs mcp
 
 It completed an MCP `initialize` and `tools/list` over stdio (255 tools). Section 1
 has the evidence, section 2 the runtime facts, section 3 what they change in the
-OpenSpec artifacts, and section 4 everything still **UNVERIFIED** plus the open
-questions.
+OpenSpec artifacts, section 4 everything still **UNVERIFIED** plus the open
+questions, and section 5 the decisions taken since discovery.
 
 ## 1. REA launch discovery
 
@@ -302,6 +302,85 @@ From REA's limit inventory (**Docs**, `docs/design/rea-limit-inventory.md`):
   20000, `REA_MCP_TOOLS_LIST_BUDGET_MS` 5000. Observed `initialize` took about 0.3 s
   (**Ran**).
 
+### 2.8 Ghidra checkpoints (`REA_GHIDRA_CHECKPOINT_DIR`)
+
+Investigated as the way to keep analysis alive beyond one MCP session. Apart
+from the source and docs, REA's real `GhidraCheckpoint` class from the published
+package was driven from separate processes with 1 MiB fake packed programs;
+Ghidra itself was not available, so nothing below involved a real Ghidra
+(**Ran**, module only).
+
+**What it is.** An opt-in cache of a binary's Ghidra analysis.
+
+- It is a startup setting: an absolute POSIX path in the environment of the REA
+  process (**Source**: `src/config/environment.ts`). It cannot be changed at
+  runtime; REA must restart (**Docs**).
+- Layout (**Ran**): `<root>/<key>/`, where `<key>` is a SHA-256 over the target
+  binary's SHA-256 and the analysis-profile digest (**Source**). The directory
+  (mode `700`) holds `current.json` (mode `600`; manifest with `version`,
+  `target_sha256`, `base_profile_digest` and `source` = `{file, sha256, kind}`) and
+  `program-<uuid>.gzf`, the packed Ghidra Program. Publishing copies the blob,
+  hashes and syncs it, then atomically renames the manifest into place; the
+  superseded blob is removed afterwards (**Source**).
+- The profile digest is built from the target's format and architecture, the
+  import mode, versioned analysis-semantics tags, and loader and language facts
+  (**Source**: `GhidraAnalysisProfile.ts`), with the Ghidra version included
+  (**Docs**). No heap or timeout setting was among the parameters read; this was
+  not traced exhaustively.
+- Identical bytes at another path reuse the same checkpoint (**Docs**).
+- Restoring imports the packed Program into a private temporary project with
+  `-noanalysis`, bringing back auto-analysis, names, comments and types
+  (**Docs**). It does **not** restore REA's own investigation state (evidence,
+  snapshots), and the working project stays ephemeral (**Docs**).
+
+**When it is saved** (**Source**, **Docs**; not run with Ghidra).
+
+- Completed first analysis is saved at once.
+- Later metadata edits are saved on normal close: the `close_binary` tool, which
+  REA advertises (**Ran**: tool list), or REA's shutdown on `SIGINT`, `SIGTERM` or
+  stdin end/close (`processShutdown.ts`, `shutdown.ts`), which runs the full
+  cleanup including the checkpoint publish and lease release. No time bound on
+  that cleanup was found.
+- Cancellation, a crash or a kill recovers only the last saved state. Save cost
+  grows with Program size (**Docs**).
+
+**Observed behaviour** (**Ran**, module only):
+
+| Scenario | Observation |
+|---|---|
+| Publish, then a new process opens the same binary and profile | Restored blob checksum matches; acquired in about 10 ms |
+| Same binary, second live session | Fails at once (about 9 ms): "another REA session owns this checkpoint (run …, process …); close that session before retrying". It does not wait. |
+| Different binary, or different profile, while the first is held | Acquires normally, in its own directory |
+| Holder killed with `SIGKILL` | Its lease socket is left behind; the next session recovers it and acquires |
+| Holder closes normally | Lease socket removed |
+| One byte of the blob flipped | Error "the packed Program checksum differs from its manifest"; **no** fallback to a fresh import |
+| Manifest deleted | Silently treated as no checkpoint; the orphaned blob stays |
+| Key directory set to mode `755` | Refused: "must be a private directory owned by this user"; not repaired |
+
+**Constraints** (**Source**, not run with Ghidra):
+
+- **Lease location.** The lease is a Unix socket at
+  `/tmp/rea-ghidra-checkpoint-leases-<uid>/<hash>.sock`. The `/tmp` is hard-coded
+  and ignores `TMPDIR`. It lives for the whole session. Leases are therefore
+  invisible between containers, so one checkpoint root must serve only one
+  container.
+- **All-or-nothing per REA process.** With the variable set, opening a target
+  that is not a stock ELF, PE or Mach-O import on Linux/macOS (pinned-language
+  or special-loader profiles, raw and DOS images, and so on) is a configuration
+  error, not a fallback to an ephemeral session. It cannot be combined with
+  `REA_GHIDRA_PROJECT_PATH`, `REA_GHIDRA_SEED_FILE`, `REA_GHIDRA_NATIVEAOT_JAR`,
+  `REA_GHIDRA_LANGUAGE_ID` or `REA_GHIDRA_DISABLED_ANALYZERS`.
+- **Keyed by binary, not by conversation.** Any later session opening the same
+  bytes gets the saved names, comments and types. REA reports such results as
+  restored state, not fresh discovery (**Docs**).
+- **No retention policy.** Nothing prunes other keys; only the superseded blob
+  inside a key is removed. A change of Ghidra version changes the profile
+  identity (**Docs**), leaving old keys orphaned. An interrupted publish can leave
+  unreferenced staging files (an inference from the code; not tested).
+- **Cancellation.** Cancelling an active Ghidra request discards that session's
+  unsaved annotations (**Source**: provider limitation text). The gateway forwards
+  client cancellations, so a cancel can drop edits made since the last save.
+
 ## 3. Consequences for the OpenSpec change
 
 None of the findings above blocks the change, but several contradict or refine
@@ -337,6 +416,24 @@ rely on them.
    stating that `GHIDRA_MAX_HEAP` must be a JVM heap size and is validated at
    gateway startup under the existing "unparsable value" rule.
 6. **`design.md` "Unverified assumptions"**: update the list as in section 4.
+7. **`specs/session-management`, "One REA process per MCP session"**: it says each
+   child starts with `/work` as its working directory. Per decision 5.1 this
+   becomes a per-session directory, `/work/sessions/<session-id>`. Add scenarios
+   that the directory exists and is the child's working directory, and that two
+   sessions have different ones.
+8. **`specs/mcp-http-gateway`, "Analysis-engine settings passthrough"**: add that
+   `REA_GHIDRA_CHECKPOINT_DIR`, when set, is passed to every child unchanged, with
+   no default (decision 5.2). The child-environment allowlist in item 4 must keep
+   excluding the five settings that cannot be combined with it (2.8).
+9. **`design.md` D6 and `specs/session-management`, "Reliable child termination"**:
+   with checkpointing enabled, end a session by closing the child's stdin first
+   and allow a longer grace than D6's 5 s before escalating to `SIGTERM` and then
+   `SIGKILL` (decision 5.4). D6's statement that the unRAID template needs no
+   custom stop timeout holds only while checkpointing is off.
+10. **Configuration surface**: `.env.example` (task 1.2), the unRAID template
+    (tasks 5.3 and 5.4, and the `unraid-template` spec's "seven advanced
+    variables") and the template's defaults check gain `REA_GHIDRA_CHECKPOINT_DIR`,
+    default unset. No new mount is needed, since `/work` is already writable.
 
 ## 4. Unverified assumptions and open questions
 
@@ -376,6 +473,24 @@ Each item names the task that should close it.
     `ca_profile.xml`, icon size (5.1).
 12. That the Claude custom-connector UI accepts a static request header, and the
     exact Cloudflare tunnel idle timeout (7.3, 8.3).
+13. Restoring a checkpoint with a real Ghidra: that it is fast, and that names,
+    comments and types survive. Upstream documents a verification script
+    (`verify:ghidra:checkpoints`); it was not run (4.6, 8.3).
+14. How long REA takes to publish a checkpoint on close for a large Program,
+    compared with the termination grace period (4.6).
+15. That, with checkpointing on, a non-stock target fails to open with Ghidra
+    instead of falling back to an ephemeral session (**Source** only; 4.6).
+16. That a conversation reconnecting on the same binary is blocked by the lease of
+    its own idle child until that child is reaped or closed. An inference from the
+    lease behaviour and the idle reaping (3.13, 8.3).
+17. Whether unRAID's "New Permissions" tool, or its FUSE-backed user shares, leave
+    the checkpoint directories at mode `700` owned by uid 99 (5.1, 8.3).
+18. Whether Claude Code and the claude.ai connector send `DELETE /mcp` or call
+    `close_binary` when a conversation ends, and whether each conversation gets its
+    own MCP session (8.3).
+19. Whether REA's Ghidra bridge endpoint is a Unix socket whose path length (the
+    kernel limit is about 108 bytes) rules out placing `TMPDIR` under a long
+    per-session directory name (4.6).
 
 ### 4.3 Open questions
 
@@ -388,3 +503,67 @@ The seven in the change's `design.md` stand. The discovery adds:
    releases are admitted with an "unverified build" limitation, and 12.2
    reportedly needs JDK 25. Should the image pin the verified pair? Recommended:
    yes, decided in task 4.1.
+3. **Retention of `/work/sessions/<id>`.** Delete a session's directory when the
+   session ends, or keep it? Tool outputs written there (for example
+   `decompile_all`) would otherwise vanish with the session. Proposed: keep, and
+   leave cleanup to the operator at first.
+4. **Termination grace.** A fixed constant, or a setting? And how the unRAID
+   template gets a Docker stop timeout that fits it when checkpointing is on
+   (how a template sets one is **UNVERIFIED**, task 5.1).
+5. **Checkpoint retention.** Operator cleanup only, documented, or a later
+   janitor that removes keys unused for a period?
+
+## 5. Decisions taken since discovery
+
+Taken by the maintainer, in conversation, on 2026-11-13. They are recorded here;
+the OpenSpec proposal, specs and tasks do not yet reflect them (see section 3,
+items 7 to 10).
+
+### 5.1 Per-session working directory
+
+Each REA child starts with `/work/sessions/<session-id>` as its working
+directory, created by the gateway before the child is spawned. This keeps
+sessions' outputs tidy and apart. It is **not** a security boundary: every child
+runs as the same uid, shares `/work` and `/samples`, and tools can still be given
+absolute paths. `TMPDIR` stays at its default for now (see 4.2, item 19).
+
+### 5.2 One shared checkpoint root, off by default
+
+When the operator sets `REA_GHIDRA_CHECKPOINT_DIR` (recommended value
+`/work/checkpoints`), the gateway passes it unchanged to every child, so all
+sessions share one root. Unset is the default and keeps today's ephemeral
+behaviour. Consequences accepted with this choice (details in 2.8):
+
+- Names, comments and types saved in one conversation appear in any later
+  conversation that opens the same binary. With no security boundary required,
+  this is acceptable and is the point of a shared cache.
+- Only one live session can hold a given binary at a time. A second session on
+  the same binary fails at once with "another REA session owns this checkpoint".
+- With the setting on, targets that are not stock ELF, PE or Mach-O imports fail
+  to open with Ghidra, so it is meant for deployments that analyze such targets.
+  The five incompatible settings listed in 2.8 are not forwarded to children.
+- Nothing prunes the directory (open question 5), and one root must not be shared
+  between containers.
+
+A per-workspace namespace was considered and not chosen. It would need a stable
+name supplied by the client, and whether the claude.ai connector can supply one
+is **UNVERIFIED**. It remains a possible later extension.
+
+### 5.3 Guidance to carry into the user documentation
+
+- Tell agents to call `close_binary` when they finish with a binary. It saves
+  edits and releases the lease, which avoids the self-lock in 4.2, item 16.
+- Keep checkpoints on persistent storage, separate from `/samples`.
+- When enabling checkpoints, do not set `REA_GHIDRA_PROJECT_PATH`,
+  `REA_GHIDRA_SEED_FILE`, `REA_GHIDRA_NATIVEAOT_JAR`, `REA_GHIDRA_LANGUAGE_ID` or
+  `REA_GHIDRA_DISABLED_ANALYZERS`.
+
+### 5.4 Session termination when checkpointing is on
+
+End a session by closing the child's stdin, which REA treats as a shutdown request
+and answers with its full cleanup, including saving edits (per the source and
+docs; not run with Ghidra). Wait longer than D6's
+5 s before escalating to `SIGTERM` and then `SIGKILL`. Gateway shutdown as a whole
+must still fit inside the container's stop timeout, so the longer grace needs a
+matching stop timeout in the template (open question 4). A killed child never
+corrupts a checkpoint, but loses edits made since the last save (2.8).
