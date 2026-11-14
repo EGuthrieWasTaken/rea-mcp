@@ -1053,6 +1053,18 @@ not read: its address was not found in the pages fetched. What it would cover
 - Whether the PID limit constrains several Ghidra sessions.
 - Whether the two-factor requirement in the policy thread still applies.
 
+### 10.6 The icon (task 5.2)
+
+`unraid/icon.png` is a 256 by 256, 8-bit RGBA PNG of 6,504 bytes: a magnifying lens over a grid of "byte
+cells" on a navy rounded square with transparent corners. The size is the choice recorded in 10.2, not a
+documented guideline. Checked on 2026-11-14 (**Ran**): the PNG signature and every chunk CRC are valid; the
+file holds only `IHDR`, `IDAT` and `IEND`, so it is one frame with no APNG animation chunks (`acTL`, `fcTL`,
+`fdAT`); the decompressed pixel data has exactly the length the header implies; and the corners are
+transparent while the centre is opaque. It is original: `scripts/make_icon.py` draws it from geometric shapes
+(signed-distance functions, standard library only) and reproduces it byte for byte, so it contains no
+third-party artwork. That it resembles no one else's mark rests on that construction and a look at the
+picture; no trademark search was made. The template check of task 5.4 repeats the PNG checks in CI.
+
 ## 11. Image build and verification (tasks 4.3 to 4.7)
 
 Gathered on 2026-11-14 on the maintainer's unRAID host (Docker Engine 29.8.2, BuildKit
