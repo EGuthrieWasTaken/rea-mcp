@@ -1,7 +1,9 @@
 // Entry point. The gateway is wired up task by task (authentication, sessions),
 // following openspec/changes/bootstrap-rea-mcp-gateway/tasks.md.
 import { ConfigError, loadConfig, type Config } from "./config.js";
+import { createKeyVerifier } from "./auth.js";
 import { createGatewayServer, listen, shutdown } from "./http/server.js";
+import { createFailureLimiter } from "./http/ratelimit.js";
 import { KeyError, loadKeys } from "./keys.js";
 import { createLogger } from "./logger.js";
 
@@ -12,9 +14,10 @@ async function main(): Promise<void> {
   // Configuration is not known yet, so startup problems are logged at the default level.
   const startupLog = createLogger("info");
   let config: Config;
+  let keys: readonly string[];
   try {
     config = loadConfig(process.env);
-    loadKeys(process.env);
+    keys = loadKeys(process.env);
   } catch (error) {
     if (error instanceof ConfigError) {
       startupLog.error("invalid configuration", { variable: error.variable, reason: error.message });
@@ -32,8 +35,12 @@ async function main(): Promise<void> {
   }
 
   const logger = createLogger(config.logLevel);
+  // Only digests of the keys are kept from here on.
+  const limiter = createFailureLimiter();
   const server = createGatewayServer({
     logger,
+    verifier: createKeyVerifier(keys),
+    limiter,
     allowedHosts: config.allowedHosts,
     trustProxy: config.trustProxy,
   });
@@ -46,6 +53,7 @@ async function main(): Promise<void> {
     stopping = true;
     logger.info("shutting down", { reason: signal });
     void shutdown(server).then(() => {
+      limiter.close();
       process.exitCode = 0;
     });
   };

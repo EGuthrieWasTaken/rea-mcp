@@ -1,6 +1,8 @@
 import { request, type IncomingHttpHeaders, type Server } from "node:http";
 import { connect, type AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
+import { createKeyVerifier } from "../src/auth.js";
+import { createFailureLimiter, type FailureLimiter } from "../src/http/ratelimit.js";
 import { createGatewayServer, listen, shutdown, type McpHandler } from "../src/http/server.js";
 import { createLogger } from "../src/logger.js";
 import { randomKey } from "./helpers/keys.js";
@@ -11,16 +13,23 @@ interface Reply {
   body: string;
 }
 
+// Tests that are not about authentication send this key, which the server accepts.
+const TEST_KEY = randomKey();
+
 const servers: Server[] = [];
+const limiters: FailureLimiter[] = [];
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => shutdown(server)));
+  for (const limiter of limiters.splice(0)) limiter.close();
 });
 
 /** Start a gateway server on an ephemeral port, capturing its log lines. */
 const start = async (mcp?: McpHandler, allowedHosts?: readonly string[], trustProxy?: boolean) => {
   const lines: string[] = [];
   const logger = createLogger("debug", (line) => lines.push(line));
-  const server = createGatewayServer({ logger, mcp, allowedHosts, trustProxy });
+  const limiter = createFailureLimiter();
+  limiters.push(limiter);
+  const server = createGatewayServer({ logger, verifier: createKeyVerifier([TEST_KEY]), limiter, mcp, allowedHosts, trustProxy });
   servers.push(server);
   await listen(server, 0);
   const port = (server.address() as AddressInfo).port;
@@ -30,7 +39,7 @@ const start = async (mcp?: McpHandler, allowedHosts?: readonly string[], trustPr
 
 const send = (port: number, method: string, path: string, headers: Record<string, string> = {}): Promise<Reply> =>
   new Promise((resolve, reject) => {
-    const req = request({ host: "127.0.0.1", port, method, path, headers }, (res) => {
+    const req = request({ host: "127.0.0.1", port, method, path, headers: { "x-api-key": TEST_KEY, ...headers } }, (res) => {
       let body = "";
       res.setEncoding("utf8").on("data", (chunk: string) => (body += chunk));
       res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body }));

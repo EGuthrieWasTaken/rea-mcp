@@ -46,6 +46,24 @@ describe("the running gateway process", () => {
     expect(gateway.stderr).toBe("");
   });
 
+  it("requires the API key on /mcp and rate-limits failures, in the real process", async () => {
+    const [port, key] = [await freePort(), randomKey()];
+    const gateway = start({ REA_MCP_API_KEY: key, PORT: String(port) });
+    await gateway.waitForLog((line) => line.message === "listening");
+    const call = (headers: Record<string, string>) => fetch(`http://127.0.0.1:${port}/mcp`, { method: "POST", headers });
+
+    expect((await call({})).status).toBe(401);
+    expect((await call({ "x-api-key": randomKey() })).status).toBe(401);
+    // Authenticated: nothing is attached to /mcp yet in this build, so it is a 404, not a 401.
+    expect((await call({ "x-api-key": key })).status).toBe(404);
+
+    for (let i = 0; i < 8; i += 1) await call({ "x-api-key": randomKey() });
+    const limited = await call({ "x-api-key": key });
+    expect(limited.status).toBe(429);
+    expect(Number(limited.headers.get("retry-after"))).toBeGreaterThanOrEqual(1);
+    expect(JSON.stringify(gateway.lines)).not.toContain(key);
+  });
+
   it("exits 0 on SIGINT too", async () => {
     const [port, key] = [await freePort(), randomKey()];
     const gateway = start({ REA_MCP_API_KEY: key, PORT: String(port) });

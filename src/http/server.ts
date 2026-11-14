@@ -2,11 +2,15 @@
 // routes do not justify a framework, and a framework's default banners and request
 // logging would work against the no-disclosure rules.
 //
-// Pipeline for /mcp, in order (later tasks add the middle steps):
+// Pipeline for /mcp, in order:
 //   method check -> Host allowlist -> rate limit -> authentication -> MCP handler
+// Authentication comes before the MCP handler, which is where sessions are looked
+// up, so an invalid key can neither probe for session IDs nor touch a session.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import type { KeyVerifier } from "../auth.js";
 import type { Logger } from "../logger.js";
 import { createHostCheck } from "./hosts.js";
+import type { FailureLimiter } from "./ratelimit.js";
 import { sourceIp } from "./source.js";
 
 /** Handles a /mcp request that has passed every pre-MCP check. */
@@ -14,6 +18,10 @@ export type McpHandler = (req: IncomingMessage, res: ServerResponse) => void | P
 
 export interface GatewayServerOptions {
   logger: Logger;
+  /** Decides whether a presented API key is accepted. Required: /mcp is never open. */
+  verifier: KeyVerifier;
+  /** Counts failed attempts and refuses sources that fail too often. */
+  limiter: FailureLimiter;
   /** Absent until the MCP endpoint is attached; /mcp then answers 404. */
   mcp?: McpHandler | undefined;
   /** ALLOWED_HOSTS: hosts /mcp may be reached by. Empty or absent means no restriction. */
@@ -50,6 +58,7 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
     const started = performance.now();
     const route = routeOf(req.url);
     const method = req.method ?? "";
+    const source = sourceIp(req, trustProxy);
 
     // One log entry per request, written when the response is over. It carries
     // only allowlisted fields: never a header, a query string or a request body.
@@ -60,7 +69,7 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
         path: route,
         status: res.statusCode,
         durationMs: Math.round(performance.now() - started),
-        sourceIp: sourceIp(req, trustProxy),
+        sourceIp: source,
       });
     });
 
@@ -87,6 +96,21 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
       // /healthz is exempt from this check so in-container health checks work.
       if (!hosts.allows(req.headers.host)) {
         reply(res, 403);
+        return;
+      }
+
+      // A source that keeps failing is refused without its key being looked at.
+      const wait = options.limiter.retryAfter(source);
+      if (wait !== undefined) {
+        reply(res, 429, { "Retry-After": wait });
+        return;
+      }
+      // The same bare 401 whether the key is missing, wrong, or sent with a live,
+      // unknown or absent session ID: nothing here depends on a session.
+      if (!options.verifier.verify(req.headers["x-api-key"])) {
+        options.limiter.recordFailure(source);
+        logger.warn("authentication failed", { sourceIp: source });
+        reply(res, 401);
         return;
       }
       const mcp = options.mcp;
