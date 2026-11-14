@@ -14,6 +14,14 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Node.js for the lint, typecheck and test jobs: one exact release, verified against the SHA-256
+  # that nodejs.org publishes for node-v<version>-linux-x64.tar.xz in
+  # https://nodejs.org/dist/v<version>/SHASUMS256.txt before it is unpacked. REA admits Node 24
+  # only from 24.22.1 (package.json "engines" says the same), so keep this at or above it.
+  NODE_VERSION: "24.22.3"
+  NODE_SHA256: "4f2b175a6d53a5c617a80dba2676238a0688cef28c6da4eba35c7d844e66fcfb"
+
 jobs:
   # openspec:secret-hygiene#automated-secret-scanning: gitleaks over the full history.
   # The binary is pinned by version and verified by SHA-256 before it runs.
@@ -62,16 +70,59 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: npx --yes @fission-ai/openspec@2.0.0 validate --all --strict
 
+  # openspec:ci-gate#pull-request-gate. The three code checks run on the pinned Node.js above and
+  # install with `npm ci`, which honours the lockfile and .npmrc (`ignore-scripts=true`).
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/node
+        with:
+          version: ${{ env.NODE_VERSION }}
+          sha256: ${{ env.NODE_SHA256 }}
+      - run: npm ci
+      - run: npm run lint
+
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/node
+        with:
+          version: ${{ env.NODE_VERSION }}
+          sha256: ${{ env.NODE_SHA256 }}
+      - run: npm ci
+      - run: npm run typecheck
+
+  # The suite builds the gateway and spawns it and a fake REA as child processes, and also starts
+  # the real, pinned `rea-agents`. It needs no secrets.
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/node
+        with:
+          version: ${{ env.NODE_VERSION }}
+          sha256: ${{ env.NODE_SHA256 }}
+      - run: npm ci
+      - run: npm test
+
   # Jobs still to come as the code lands (openspec change bootstrap-rea-mcp-gateway, group 6):
-  # lint, typecheck, test, unraid-template, image build + smoke test. Each must be added to
-  # `needs:` below when it is added here.
+  # unraid-template, image build + smoke test. Each must be added to `needs:` below when it is
+  # added here.
 
   # ---- The required check: depends on every job above, tolerates skips ----
   # openspec:ci-gate#branch-protection-and-the-gate-job
   gate:
     name: gate
     if: always()
-    needs: [secrets, hygiene, openspec]
+    needs: [secrets, hygiene, openspec, lint, typecheck, test]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
