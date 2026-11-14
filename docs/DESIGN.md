@@ -177,7 +177,7 @@ versions (**Ran**):
   `REA_GHIDRA_STARTUP_TIMEOUT_MS` to it (`test/real-rea.test.ts`, 2 tests passed;
   **Ran**, [run 43635764228](https://github.com/EGuthrieWasTaken/rea-mcp/actions/runs/43635764228)).
   That covers REA's stdio server on Node 24. Its Ghidra-backed analysis on Node 24
-  is still **UNVERIFIED** (task 4.6).
+  was then run in the image, on all 22 sample binaries (section 11.5; **Ran**).
 
 ### 2.2 How REA finds Ghidra and Java
 
@@ -278,8 +278,8 @@ versions (**Ran**):
   For the image this means a writable temp directory **without a dot-prefixed
   path element** (for example `/tmp`, or `/work/tmp` but not `/work/.tmp`) is
   required, and Ghidra's own user directories need not be placed under `/work`
-  as D9 assumes. The actual behaviour with a read-only root filesystem is
-  **UNVERIFIED** (task 4.6).
+  as D9 assumes. With a read-only root filesystem and a `/tmp` mount, Ghidra works
+  unchanged (section 11.5; **Ran**).
 - **Tool outputs** go where the caller points. Tools that export or extract take
   a path, for example `decompile_all` ("Write every function's pseudocode into a
   directory and return a manifest"), `extract_artifact` and `export_web_scripts`
@@ -291,8 +291,8 @@ versions (**Ran**):
   Which tools accept which paths, and whether any are confined to a root, was
   not audited: **UNVERIFIED**.
 - **Read-only inputs**: REA's docs say it never writes to an APK it analyzes
-  (**Docs**). Whether Ghidra's import of a binary from a read-only `/samples`
-  works is **UNVERIFIED** (task 4.6). `REA_GHIDRA_PROJECT_PATH` and
+  (**Docs**). Ghidra's import of a binary from a read-only `/samples` works (section
+  11.5; **Ran**). `REA_GHIDRA_PROJECT_PATH` and
   `REA_GHIDRA_CHECKPOINT_DIR` exist (**Source**, by name); their semantics were
   not examined.
 
@@ -313,7 +313,7 @@ Investigated as the way to keep analysis alive beyond one MCP session. Apart
 from the source and docs, REA's real `GhidraCheckpoint` class from the published
 package was driven from separate processes with 1 MiB fake packed programs;
 Ghidra itself was not available, so nothing below involved a real Ghidra
-(**Ran**, module only).
+(**Ran**, module only). Section 11.6 repeats the main behaviours with a real Ghidra.
 
 **What it is.** An opt-in cache of a binary's Ghidra analysis.
 
@@ -459,7 +459,8 @@ Each item names the task that should close it.
    release notes for 12.1.4. **Resolved 2026-11-14**: it does (section 8.2; **Ran**).
 2. That the native decompiler in the official Linux x86_64 archive runs under uid
    99 in the image. The archive ships it (section 8; **Ran**); running it is
-   task 4.6.
+   task 4.6. **Resolved 2026-11-14**: it ran as uid 99 and produced correct
+   pseudocode (sections 11.3, 11.5).
 3. That the Temurin 21.0.13+9 JDK, which bookworm needs because it packages no
    JDK 21, runs on the image's Debian userland with REA and Ghidra. It was
    verified by hash and contents but not executed (section 9.3; tasks 4.3, 4.6).
@@ -467,22 +468,31 @@ Each item names the task that should close it.
    `--cap-drop=ALL` (section 9.4; task 4.6). **Partly resolved 2026-11-14**: the JDK
    runs in the image (`java` and `javac` report 21.0.13), `dumpcap` has no file
    capabilities, and `tshark -r` works as uid 99 under `--cap-drop=ALL` (section 11.1).
-   What remains is Ghidra and REA running on that JDK (task 4.6).
+   Ghidra and REA also run on that JDK (sections 11.3, 11.5): **resolved**.
 4. REA's Ghidra-backed analysis on Node 24 (task 4.6). Its stdio server was run on
    Node 24.22.3 in CI (section 2.1). The base tag resolves to Node 24.22.3, read
    from a tag name rather than by running `node` in the image (section 9.2).
    **Partly resolved 2026-11-14**: `node --version` in the image reports v24.22.3
-   (section 11.1). Ghidra-backed analysis on it remains (task 4.6).
+   (section 11.1), and REA's Ghidra-backed analysis ran on it for all 22 samples
+   (section 11.5): **resolved**.
 5. That the Ghidra JVM reports the expected maximum heap when
    `GHIDRA_HEADLESS_MAXMEM` is set (4.4). **Resolved 2026-11-14**: it does, for four
    settings (section 11.3; **Ran**).
 6. REA and Ghidra with a read-only `/samples`, a read-only root filesystem and a
-   non-root uid, including the temp-directory behaviour in 2.6 (4.6).
+   non-root uid, including the temp-directory behaviour in 2.6 (4.6). **Resolved
+   2026-11-14**: all work, with `/tmp` and `/work` the only writable places (section 11.5).
 7. What a tool call returns when its analysis engine is missing (4.6, 8.3).
+   **Resolved 2026-11-14** for Rizin: a normal result with `isError` set and a
+   structured `capability_unavailable` error that names the missing executable and
+   a remedy. JADX was not exercised on an APK (section 11.5).
 8. REA's stdio behaviour when stdin closes or `SIGTERM` arrives **while a request
    is in flight**. Only the idle case was observed (exit `0` on EOF). In HTTP mode,
-   `SIGTERM` exited `143` (3.13, 3.14).
+   `SIGTERM` exited `143` (3.13, 3.14). **Resolved 2026-11-14**: with a Ghidra
+   analysis in flight, a closed stdin made REA cancel the call, stop Ghidra and
+   exit `0` within about 0.6 s, and `docker stop` ended the container with exit
+   `0` in 0.84 s (section 11.5).
 9. Which REA tools write to which paths, and whether any are confined to a root (8.3).
+   Still open; one tool was checked: `decompile_all` wrote into `/work` (section 11.5).
 10. That the SDK's streamable HTTP transport permits SSE comment frames and
     forced-SSE responses (3.6).
 11. Whether the Community Apps scanner finds a template at `unraid/rea-mcp.xml`
@@ -494,22 +504,33 @@ Each item names the task that should close it.
     exact Cloudflare tunnel idle timeout (7.3, 8.3).
 13. Restoring a checkpoint with a real Ghidra: that it is fast, and that names,
     comments and types survive. Upstream documents a verification script
-    (`verify:ghidra:checkpoints`); it was not run (4.6, 8.3).
+    (`verify:ghidra:checkpoints`); it was not run (4.6, 8.3). **Resolved 2026-11-14**
+    for the samples: restore took 8.8 s against 43.5 s for the first analysis of the
+    largest one, and names and comments survived (section 11.6). The upstream script
+    was still not run.
 14. How long REA takes to publish a checkpoint on close for a large Program,
-    compared with the termination grace period (4.6).
+    compared with the termination grace period (4.6). **Resolved 2026-11-14** for the
+    largest sample (a 3.8 MB blob): 1.1 s on `close_binary`, and REA exited 0.96 s
+    after its stdin closed. A truly large Program was not available (section 11.6).
 15. That, with checkpointing on, a non-stock target fails to open with Ghidra
     instead of falling back to an ephemeral session (**Source** only; 4.6).
+    **Resolved 2026-11-14**: it fails, with the reason in the error (section 11.6).
 16. That a conversation reconnecting on the same binary is blocked by the lease of
     its own idle child until that child is reaped or closed. An inference from the
-    lease behaviour and the idle reaping (3.13, 8.3).
+    lease behaviour and the idle reaping (3.13, 8.3). **Resolved 2026-11-14**: a second
+    live session on the same bytes failed at once until the first called `close_binary`
+    (section 11.6). Whether a real client reconnects that way is still item 18.
 17. Whether unRAID's "New Permissions" tool, or its FUSE-backed user shares, leave
-    the checkpoint directories at mode `700` owned by uid 99 (5.1, 8.3).
+    the checkpoint directories at mode `700` owned by uid 99 (5.1, 8.3). **Partly
+    resolved 2026-11-14**: on `/mnt/user/appdata` (shfs, FUSE) REA created them at `700`
+    owned by 99:100 and everything worked (section 11.6). The "New Permissions" tool was
+    not run, by instruction, so whether it resets them stays **UNVERIFIED**.
 18. Whether Claude Code and the claude.ai connector send `DELETE /mcp` or call
     `close_binary` when a conversation ends, and whether each conversation gets its
     own MCP session (8.3).
 19. Whether REA's Ghidra bridge endpoint is a Unix socket whose path length (the
     kernel limit is about 108 bytes) rules out placing `TMPDIR` under a long
-    per-session directory name (4.6).
+    per-session directory name (4.6). Not examined: `TMPDIR` stayed unset (section 5.1).
 
 ### 4.3 Open questions
 
@@ -894,10 +915,8 @@ Ghidra and `tshark` 4.4 behave on it is **UNVERIFIED**, and it changes the
 
 ### 9.6 What is still UNVERIFIED
 
-- That Ghidra and REA run on the Temurin JDK (task 4.6). The JDK itself runs in the
-  image (section 11.1).
-- REA's Ghidra-backed analysis on Node 24 (section 2.1; task 4.6). The image's Node is
-  v24.22.3 (section 11.1).
+- Nothing. The JDK, Ghidra and REA run together on Node 24.22.3 in the image, and
+  `dumpcap` has no file capabilities (sections 11.1, 11.3 and 11.5).
 
 ## 10. unRAID and Community Apps rules (task 5.1)
 
@@ -988,7 +1007,11 @@ not read: its address was not found in the pages fetched. What it would cover
   for unlimited PIDs (not recommended)". Threads count against a PID limit, so
   several Ghidra JVMs and their decompiler processes, up to `MAX_SESSIONS` of them,
   could approach it. That is an inference and is **UNVERIFIED**; it belongs in the
-  memory and sizing guidance (tasks 7.2, 7.4) and in the end-to-end check (8.3).
+  memory and sizing guidance (tasks 7.2, 7.4) and in the end-to-end check (8.3). One
+  measurement exists (section 11.5): two concurrent Ghidra sessions on a 770 KB binary
+  took the container to 197 PIDs, from 10 idle, so the default `MAX_SESSIONS` of 4 is
+  an extrapolated 380 or so on that 64-CPU host, well under 2048; the count depends on
+  the CPU count.
 
 ### 10.4 Community Apps submission and moderation
 
@@ -1136,5 +1159,101 @@ Each value equals the heap requested, so the mapping of design D10 works as writ
   `GHIDRA_HEADLESS_MAXMEM`, `GHIDRA_INSTALL_DIR`, `HOME`, `JAVA_HOME` and `PATH` of the variables
   checked (design D8, D13).
 
-What this section does not yet cover: the hardened-run checks beyond this scenario, the
-smoke-test script (tasks 4.6, 4.7).
+### 11.4 The hardened run (task 4.6)
+
+The container was started as the template will start it: `--cap-drop=ALL
+--security-opt=no-new-privileges:true`, `/samples` mounted `:ro`, `/work` a bind mount owned by
+99:100, no `--privileged`, bridge networking, the image's own `HEALTHCHECK`. A memory limit of 6 GiB
+and a PID limit of 1024 were added as test safeguards.
+
+| Check | Result |
+|---|---|
+| Identity | `.Config.User` is `99:100`; `id` gives `uid=99(rea-mcp) gid=100(users)` |
+| Privileges | The gateway process has empty permitted, effective and bounding capability sets (`CapPrm`, `CapEff`, `CapBnd` all zero) and `NoNewPrivs: 1`; `Privileged=false` |
+| Tools resolve as uid 99 | `java` 21.0.13, `javac` 21.0.13, `ps` procps-ng 4.0.2, `tshark` 4.0.17, `objdump` 2.40 |
+| `/samples` and `/work` | A write to `/samples` fails with "Read-only file system"; a write to `/work` works |
+| Headless Ghidra's own launcher | `support/analyzeHeadless /tmp/ghproj rea-dev -import /samples/binaries/ghidra-class/switch -deleteProject` ran as uid 99 under the Temurin JDK in 9.0 s: "Analysis succeeded", "Save succeeded", "Import succeeded"; no Java version error. It wrote Ghidra's user settings to `/work/home/.config/ghidra/ghidra_12.1.4_PUBLIC` |
+| Health | `healthy` at the first poll, more than 10 s after start, with the image's unmodified `HEALTHCHECK` (30 s interval, 15 s start period) |
+| `/healthz` | `200` with `{"status":"ok"}` and no key; no `Server` or `X-Powered-By` header |
+| Authenticated `initialize` | Right key: `200` with an `Mcp-Session-Id`, REA's `initialize` result. Wrong key and no key: `401`, empty body, no session; the log line is `authentication failed` with the source address only |
+| `docker stop` | Exit `0` in 0.2 s when idle; 0.84 s with a Ghidra analysis in flight (section 11.5) |
+
+### 11.5 Real Ghidra-backed paths, shutdown and sizing (task 4.6)
+
+**Analysis through REA.** All 22 sample binaries were opened and analysed through the gateway in one
+session, in the hardened container with `/samples` read-only: 22 succeeded, none failed. Each took 9 to
+13 s (JVM start dominates; `open_binary` itself does not start Ghidra), except the 770 KB static
+`stack-buffer-overflow-amd64`: 41 s and 1078 function rows. Function rows ranged from 1
+(`exotic_instructions-amd64`) and 2 (`dynamic_jump-amd64`) to 86 for the C++ `animals`, and 1078 for the
+static binary; the four shared objects and the stripped `sharedReturn` also worked. For `switch`, `analyze_function` returned
+pseudocode for `main` that matches its source (a jump through a ten-entry table, with the usage
+message), so Ghidra's native decompiler, `demangler_gnu_v2_41` and the JVM all ran as uid 99.
+
+**Other REA tools that reach the image's engines.**
+
+| Tool | Result |
+|---|---|
+| `inspect_with_objdump` | Real GNU objdump output: `file format elf64-x86-64`, `<main>:`, the `strtoul` call |
+| `inspect_pcap_capture` (tshark) | 34 packets, with `www.example.test`, `api.example.test`, `missing.example.test`, `/index.html`, `/api/v1/items`; TShark 4.0.17; `inspect_packet_capture` and `inspect_packet_fields` also answered |
+| `decompile_all` | Wrote 20 files under `/work/out-decompile` from the read-only `/samples`: directories `700`, files `600`, owner 99:100 |
+| `execute_rizin_command` (no Rizin in the image) | A normal result with `isError`, `code: capability_unavailable`, "Could not launch the selected rizin executable "rizin" (ENOENT)" and a remedy ("make that command available on PATH") |
+| `search_android_classes` (no JADX) | `capability_unavailable`, "Target ... is elf; provide one standalone APK". It was given an ELF, so it does not show what an APK does without JADX |
+
+**A read-only root filesystem works.** With `--read-only --tmpfs /tmp` (Docker's default options,
+`rw,noexec,nosuid,nodev`, 64 MB) the same analysis gave the same pseudocode and nothing was logged. The
+writable places Ghidra needs are `/tmp` (its per-session home and temporary directory, `/tmp/rea-ghidra-<random>`,
+which REA removes after `close_binary` and after a bare `DELETE`; only the JVM's small `hsperfdata_<user>`
+stays) and `/work`. `noexec` on `/tmp` is harmless. The size matters: one live session
+on the 770 KB binary used about 27.5 MiB of `/tmp`, so two used 55 of the 64 MB. A read-only deployment
+should give `/tmp` a larger tmpfs.
+
+**Sizing, measured** with two concurrent sessions on the 770 KB binary and Ghidra's default 2G heap
+(each took about 45 s): the container's cgroup `pids.current` peaked at 197 (10 with the gateway idle),
+about 94 per session, and its memory at about 2.5 GiB. The PID count follows the host's CPU count (64 here).
+Four concurrent sessions were not run.
+
+**Shutdown while a request is in flight** (a `binary_overview` of the 770 KB binary, 6 s in):
+
+| Ending | Result |
+|---|---|
+| Client `DELETE /mcp` | `200` in 5 ms. REA cancelled the call (`status: "error"` in its log), stopped Ghidra and exited `0` 0.64 s after the gateway closed its stdin; no `SIGTERM` or `SIGKILL`; no Java or decompiler process left |
+| `docker stop` (default 10 s) | 0.84 s; container exit code `0`; REA exited `0` about 0.6 s after the `SIGTERM` reached the gateway |
+| The request that was in flight | In both cases it ended as HTTP `200` with an empty body: no JSON-RPC result and no JSON-RPC error. The spec fixes only the child-exit case ("fail its in-flight requests with an error"), so this is recorded as an observation, not a defect |
+
+### 11.6 Checkpoints with a real Ghidra (task 4.6; section 2.8)
+
+With `REA_GHIDRA_CHECKPOINT_DIR=/work/checkpoints`, in the hardened container, on `switch` unless
+noted (all **Ran**):
+
+| Scenario | Result |
+|---|---|
+| First analysis | Saved at once. REA created `/work/checkpoints` itself (mode `700`, owner 99:100), with `<key>/current.json` (`600`) and `program-<uuid>.gzf` (38 KB, `644`) in a `700` key directory. The lease is a socket under `/tmp/rea-ghidra-checkpoint-leases-<uid>/` |
+| `annotate_native_function`, then `close_binary` | The blob was replaced by a new one: saved on normal close |
+| A later session on the same bytes | The renamed function and its comment came back, reported as restored state. First Ghidra call 8.5 s, against 10.9 s for the first analysis: little gain on a 16 KB binary, where JVM start dominates |
+| The same on the 770 KB static binary | First analysis 43.5 s; restore plus first Ghidra call 8.8 s; blob 3.79 MB |
+| A second live session on the same bytes | Fails in about 100 ms: `configuration_invalid`, "REA_GHIDRA_CHECKPOINT_DIR: another REA session owns this checkpoint (run ..., process ...); close that session before retrying." The holder was an idle session. After its `close_binary` (no `DELETE` needed) the second session worked |
+| A non-stock target (`raw-binary`) with checkpointing on | `open_binary` succeeds, then the first analysis call fails with `provider_unavailable`; the rejection reason is "Ghidra checkpoints currently support stock ELF/PE/Mach-O imports on Linux/macOS" (code `version_unresolved`), also shown by `binary_session` with `detail: complete`. It does not fall back. Without checkpointing the same target analysed normally (10 s) |
+| `DELETE` without `close_binary`, after an unsaved edit | The edit was saved by REA's shutdown. On the large sample, REA published a 3.8 MB Program and exited 0.96 s after its stdin closed, against a 30 s grace |
+| `close_binary` publish on the large sample | 1.1 s |
+| `docker stop` (default 10 s) after an unsaved edit | 0.4 s, exit `0`; in a new container on the same `/work` the edit was there |
+| `SIGKILL` of the whole container after an unsaved edit | The checkpoint was intact and restored in a new container; the last good save was present and the unsaved edit was lost |
+| `/work` on `/mnt/user/appdata` (unRAID user share, shfs, FUSE) | Everything above behaved the same; directories stayed `700`, owner 99:100 |
+
+`annotate_native_function` replaces a function's comment, so a later edit overwrites an earlier
+one on the same function.
+
+### 11.7 What was not checked
+
+- **APK decompilation.** There is no APK sample and the image has no JADX by design, so only the
+  non-APK error of section 11.5 was seen.
+- **A truly large Program.** The largest sample is 770 KB (a 3.8 MB checkpoint blob). Publish time and
+  restore time for a program of tens of megabytes are unknown, as is whether 30 s is enough for one.
+- **Four concurrent sessions** (the default `MAX_SESSIONS`), memory at an 8G heap, and unRAID's own
+  Docker PID limit setting (the test used `--pids-limit=1024`).
+- **unRAID's "New Permissions" tool**, whether array stop and server shutdown use the Docker Stop
+  Timeout setting, and whether a `--stop-timeout` in `ExtraParams` is honoured (section 10.5).
+- **Clients and the tunnel**: Claude Code, the claude.ai connector, `DELETE /mcp` on exit, and a call
+  longer than the roughly 100 s idle limit (task 8.3 and `docs/CLOUDFLARE.md`).
+- **Which of REA's roughly 250 tools write where.** Only `decompile_all` was checked.
+- **`TMPDIR` under a long per-session path** (item 19 of section 4.2).
+- **The upstream `verify:ghidra:checkpoints` script.**
