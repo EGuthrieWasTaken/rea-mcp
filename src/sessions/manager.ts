@@ -19,6 +19,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import {
   isInitializeRequest,
   isJSONRPCErrorResponse,
+  isJSONRPCNotification,
   isJSONRPCRequest,
   isJSONRPCResultResponse,
   type JSONRPCMessage,
@@ -35,6 +36,10 @@ export interface SessionManagerOptions {
   launch: ReaLaunch;
   /** Each session's working directory is created as <sessionsDir>/<session-id>. */
   sessionsDir: string;
+  /** SESSION_IDLE_TIMEOUT_SEC in milliseconds. A session with no activity and nothing in flight this long is ended. Default 900 000. */
+  idleTimeoutMs?: number;
+  /** How often idle sessions are looked for. Default a tenth of the timeout, between 1 s and 30 s. */
+  reapIntervalMs?: number;
   /** MAX_SESSIONS: most sessions live at once, counting those still starting. Default 4. */
   maxSessions?: number;
   /** Retry-After, in seconds, sent when the cap is reached. Default 30. */
@@ -51,6 +56,10 @@ interface Session {
   readonly id: string;
   readonly child: ReaChild;
   readonly transport: StreamableHTTPServerTransport;
+  /** Requests the client has sent that REA has not answered yet. */
+  readonly inFlight: Set<RequestId>;
+  /** performance.now() of the last request or answer; the idle timer counts from here. */
+  lastActivity: number;
   ended: boolean;
 }
 
@@ -106,18 +115,26 @@ export class SessionManager {
   private attempts = 0;
   /** Sessions whose slot is reserved but which are not registered yet (still starting). */
   private starting = 0;
+  private readonly reaper: NodeJS.Timeout;
 
   constructor(options: SessionManagerOptions) {
     this.logger = options.logger;
     this.launch = options.launch;
     this.sessionsDir = options.sessionsDir;
     this.options = {
+      idleTimeoutMs: options.idleTimeoutMs ?? 900_000,
+      reapIntervalMs: 0,
       maxSessions: options.maxSessions ?? 4,
       retryAfterSec: options.retryAfterSec ?? 30,
       keepAliveMs: options.keepAliveMs ?? 15_000,
       initializeTimeoutMs: options.initializeTimeoutMs ?? 30_000,
       maxBodyBytes: options.maxBodyBytes ?? 16 * 1024 * 1024,
     };
+    this.options.reapIntervalMs =
+      options.reapIntervalMs ?? Math.min(30_000, Math.max(1_000, Math.round(this.options.idleTimeoutMs / 10)));
+    // One timer for every session. Unref'd so it never keeps the process alive.
+    this.reaper = setInterval(() => this.reapIdle(), this.options.reapIntervalMs);
+    this.reaper.unref();
   }
 
   /** The /mcp handler: call it only for requests that have passed authentication. */
@@ -133,8 +150,9 @@ export class SessionManager {
     return this.attempts;
   }
 
-  /** End every session, killing its REA process. */
+  /** Stop looking for idle sessions, then end every session, killing its REA process. */
   async closeAll(): Promise<void> {
+    clearInterval(this.reaper);
     await Promise.all([...this.sessions.values()].map((session) => this.end(session, "gateway shutdown")));
   }
 
@@ -146,6 +164,9 @@ export class SessionManager {
       // GET (the standalone SSE stream) and DELETE both need a session.
       if (header === undefined) return jsonError(res, 400, -32000, "Bad Request: Mcp-Session-Id header is required");
       if (session === undefined) return notFound(res);
+      // Reaching here means the request was authenticated: only then does it count as
+      // activity. (An open GET stream is not activity beyond the request that opened it.)
+      session.lastActivity = performance.now();
       return session.transport.handleRequest(req, res);
     }
 
@@ -165,6 +186,7 @@ export class SessionManager {
       return jsonError(res, 400, -32000, "Bad Request: Mcp-Session-Id header is required");
     }
     if (session === undefined) return notFound(res);
+    session.lastActivity = performance.now();
     return session.transport.handleRequest(req, res, parsed);
   }
 
@@ -240,8 +262,20 @@ export class SessionManager {
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => sessionId,
       keepAliveMs: this.options.keepAliveMs,
+      // The transport reports a client's DELETE here; look the session up by id.
+      onsessionclosed: () => {
+        const live = this.sessions.get(sessionId);
+        if (live !== undefined) void this.end(live, "deleted by client");
+      },
     });
-    const session: Session = { id: sessionId, child, transport, ended: false };
+    const session: Session = {
+      id: sessionId,
+      child,
+      transport,
+      inFlight: new Set(),
+      lastActivity: performance.now(),
+      ended: false,
+    };
 
     // The first message the transport hands us is the initialize request we have
     // already put to REA: answer it with what REA said, and relay everything else.
@@ -252,11 +286,22 @@ export class SessionManager {
         this.deliver(session, answer);
         return;
       }
+      this.track(session, message);
       this.forward(session, message);
     };
     transport.onclose = () => void this.end(session, "transport closed");
-    child.onmessage = (message) => this.deliver(session, message);
-    child.onexit = (exit) => this.childExited(session, exit);
+    child.onmessage = (message) => {
+      // An answer from REA ends its request, and the idle timer restarts from here.
+      if (
+        (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) &&
+        message.id !== undefined &&
+        session.inFlight.delete(message.id)
+      ) {
+        session.lastActivity = performance.now();
+      }
+      this.deliver(session, message);
+    };
+    child.onexit = (exit) => void this.childExited(session, exit);
 
     this.sessions.set(sessionId, session);
     release(); // now it is counted as a live session, not as one that is starting
@@ -310,6 +355,29 @@ export class SessionManager {
     });
   }
 
+  /** Note what a message from the client does to the session's activity and in-flight requests. */
+  private track(session: Session, message: JSONRPCMessage): void {
+    session.lastActivity = performance.now();
+    if (isJSONRPCRequest(message)) {
+      session.inFlight.add(message.id);
+    } else if (isJSONRPCNotification(message) && message.method === "notifications/cancelled") {
+      // The client has given up on that request and REA need not answer it, so it must
+      // not keep the session from being idle forever.
+      const requestId = message.params?.requestId;
+      if (typeof requestId === "string" || typeof requestId === "number") session.inFlight.delete(requestId);
+    }
+  }
+
+  /** End every session that has had no activity and nothing in flight for the idle timeout. */
+  private reapIdle(): void {
+    const now = performance.now();
+    for (const session of this.sessions.values()) {
+      if (session.inFlight.size === 0 && now - session.lastActivity >= this.options.idleTimeoutMs) {
+        void this.end(session, "idle");
+      }
+    }
+  }
+
   /** A message from the client, towards REA. */
   private forward(session: Session, message: JSONRPCMessage): void {
     try {
@@ -320,7 +388,7 @@ export class SessionManager {
     }
   }
 
-  private childExited(session: Session, exit: ChildExit): void {
+  private async childExited(session: Session, exit: ChildExit): Promise<void> {
     if (session.ended) return;
     this.logger.warn("REA exited", {
       sessionId: session.id,
@@ -331,7 +399,13 @@ export class SessionManager {
     for (const line of session.child.stderrLines) {
       this.logger.warn("REA stderr", { sessionId: session.id, stream: "stderr", line });
     }
-    void this.end(session, "REA exited");
+    // Every call still waiting for REA gets an error, not silence, before the session goes.
+    const pending = [...session.inFlight];
+    session.inFlight.clear();
+    await Promise.allSettled(
+      pending.map((id) => session.transport.send({ jsonrpc: "2.0", id, error: { code: -32603, message: "REA exited" } })),
+    );
+    await this.end(session, "REA exited");
   }
 
   /** Remove a session and stop everything it owns. Safe to call more than once. */
