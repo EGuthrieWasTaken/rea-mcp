@@ -32,7 +32,22 @@ async function main(): Promise<void> {
   }
 
   const logger = createLogger(config.logLevel);
-  const server = createGatewayServer({ logger });
+  const server = createGatewayServer({ logger, allowedHosts: config.allowedHosts });
+
+  // Handlers go in before the port opens, so there is no moment at which a signal
+  // meets the default action (an abrupt exit) instead of a clean shutdown.
+  let stopping = false;
+  const stop = (signal: string): void => {
+    if (stopping) return;
+    stopping = true;
+    logger.info("shutting down", { reason: signal });
+    void shutdown(server).then(() => {
+      process.exitCode = 0;
+    });
+  };
+  process.once("SIGTERM", () => stop("SIGTERM"));
+  process.once("SIGINT", () => stop("SIGINT"));
+
   try {
     await listen(server, config.port);
   } catch (error) {
@@ -41,17 +56,13 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
+  // A signal that arrived while the port was opening: finish what it asked for.
+  if (stopping) {
+    await shutdown(server);
+    return;
+  }
   logger.info("listening", { port: config.port });
   logger.warn("the MCP endpoint is not wired up in this build; /mcp answers 404");
-
-  const stop = (signal: string): void => {
-    logger.info("shutting down", { reason: signal });
-    void shutdown(server).then(() => {
-      process.exitCode = 0;
-    });
-  };
-  process.once("SIGTERM", () => stop("SIGTERM"));
-  process.once("SIGINT", () => stop("SIGINT"));
 }
 
 void main();

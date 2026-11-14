@@ -1,5 +1,5 @@
 import { request, type IncomingHttpHeaders, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
+import { connect, type AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { createGatewayServer, listen, shutdown, type McpHandler } from "../src/http/server.js";
 import { createLogger } from "../src/logger.js";
@@ -17,10 +17,10 @@ afterEach(async () => {
 });
 
 /** Start a gateway server on an ephemeral port, capturing its log lines. */
-const start = async (mcp?: McpHandler) => {
+const start = async (mcp?: McpHandler, allowedHosts?: readonly string[]) => {
   const lines: string[] = [];
   const logger = createLogger("debug", (line) => lines.push(line));
-  const server = createGatewayServer({ logger, mcp });
+  const server = createGatewayServer({ logger, mcp, allowedHosts });
   servers.push(server);
   await listen(server, 0);
   const port = (server.address() as AddressInfo).port;
@@ -182,5 +182,77 @@ describe("request logging", () => {
     expect(output).not.toContain("attacker-chosen-path");
     expect(output).not.toContain("x-api-key");
     expect(JSON.parse(lines[0] ?? "{}")).toMatchObject({ path: "other" });
+  });
+});
+
+describe("Host allowlist on /mcp", () => {
+  const reach = (): { handler: McpHandler; reached: () => number } => {
+    let count = 0;
+    return {
+      handler: (_req, res) => {
+        count += 1;
+        res.writeHead(204).end();
+      },
+      reached: () => count,
+    };
+  };
+
+  it("lets a listed host through to the handler, whatever its case or port", async () => {
+    const { handler, reached } = reach();
+    const { port } = await start(handler, ["rea.example"]);
+    for (const host of ["rea.example", "REA.Example", "rea.example:8443"]) {
+      expect((await send(port, "POST", "/mcp", { host })).status).toBe(204);
+    }
+    expect(reached()).toBe(3);
+  });
+
+  it("answers 403 for an unlisted host, even with a key, and never reaches the handler", async () => {
+    const { handler, reached } = reach();
+    const { port } = await start(handler, ["rea.example"]);
+    const reply = await send(port, "POST", "/mcp", { host: "evil.example", "x-api-key": randomKey() });
+    expect(reply.status).toBe(403);
+    expect(reply.body).toBe("");
+    expectAnonymous(reply);
+    expect(reached()).toBe(0);
+  });
+
+  it("answers 403 when there is no Host header at all", async () => {
+    const { handler, reached } = reach();
+    const { port } = await start(handler, ["rea.example"]);
+    const status = await new Promise<string>((resolve, reject) => {
+      const socket = connect({ host: "127.0.0.1", port });
+      let text = "";
+      socket.setEncoding("utf8").on("data", (chunk: string) => (text += chunk));
+      socket.once("close", () => resolve(text.split("\r\n", 1)[0] ?? ""));
+      socket.once("error", reject);
+      socket.write("POST /mcp HTTP/1.0\r\n\r\n");
+    });
+    expect(status).toContain("403");
+    expect(reached()).toBe(0);
+  });
+
+  it("does not restrict /healthz", async () => {
+    const { port } = await start(undefined, ["rea.example"]);
+    expect((await send(port, "GET", "/healthz", { host: "localhost:8080" })).status).toBe(200);
+  });
+
+  it("restricts nothing when no allowlist is set", async () => {
+    const { handler, reached } = reach();
+    const { port } = await start(handler);
+    expect((await send(port, "POST", "/mcp", { host: "anything.example" })).status).toBe(204);
+    expect(reached()).toBe(1);
+  });
+
+  it("checks the method first: an unsupported method on a bad host is a 405", async () => {
+    const { port } = await start((_req, res) => void res.writeHead(204).end(), ["rea.example"]);
+    expect((await send(port, "PUT", "/mcp", { host: "evil.example" })).status).toBe(405);
+  });
+
+  it("does not log the Host header it rejected", async () => {
+    const { port, lines } = await start((_req, res) => void res.writeHead(204).end(), ["rea.example"]);
+    await send(port, "POST", "/mcp", { host: "evil-host-marker.example" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(lines.join("")).not.toContain("evil-host-marker");
+    expect(JSON.parse(lines[0] ?? "{}")).toMatchObject({ status: 403, path: "/mcp" });
   });
 });

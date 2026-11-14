@@ -6,6 +6,7 @@
 //   method check -> Host allowlist -> rate limit -> authentication -> MCP handler
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { Logger } from "../logger.js";
+import { createHostCheck } from "./hosts.js";
 
 /** Handles a /mcp request that has passed every pre-MCP check. */
 export type McpHandler = (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;
@@ -14,6 +15,8 @@ export interface GatewayServerOptions {
   logger: Logger;
   /** Absent until the MCP endpoint is attached; /mcp then answers 404. */
   mcp?: McpHandler | undefined;
+  /** ALLOWED_HOSTS: hosts /mcp may be reached by. Empty or absent means no restriction. */
+  allowedHosts?: readonly string[] | undefined;
 }
 
 const MCP_METHODS = ["POST", "GET", "DELETE"] as const;
@@ -37,6 +40,7 @@ const reply = (res: ServerResponse, status: number, headers: Record<string, stri
 
 export function createGatewayServer(options: GatewayServerOptions): Server {
   const { logger } = options;
+  const hosts = createHostCheck(options.allowedHosts ?? []);
 
   const server = createServer((req, res) => {
     const started = performance.now();
@@ -74,6 +78,11 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
     if (route === "/mcp") {
       if (!(MCP_METHODS as readonly string[]).includes(method)) {
         reply(res, 405, { Allow: MCP_METHODS.join(", ") });
+        return;
+      }
+      // /healthz is exempt from this check so in-container health checks work.
+      if (!hosts.allows(req.headers.host)) {
+        reply(res, 403);
         return;
       }
       const mcp = options.mcp;

@@ -25,7 +25,7 @@ Ask the maintainer before pushing or publishing to GHCR.
 - [x] 3.4 Implement digest-based constant-time key verification that evaluates every accepted key; unit-test missing, wrong, right, multi-key, length mismatch, and that all comparisons run
 - [x] 3.5 Implement the JSON logger with an explicit field allowlist and `LOG_LEVEL` filtering; unit-test that no headers or key material are emitted at `debug` and that level filtering works
 - [x] 3.6 Implement the HTTP server with `/healthz`, 404 for unknown paths, 405 for unsupported methods, and confirm the SDK transport allows SSE comment frames and forced-SSE responses (spike); test that `/healthz` returns exactly `{"status":"ok"}` with no identifying headers
-- [ ] 3.7 Implement the `ALLOWED_HOSTS` check for `/mcp` with `/healthz` exempt; unit-test allowed, disallowed, port-suffixed, case-differing, and unset cases
+- [x] 3.7 Implement the `ALLOWED_HOSTS` check for `/mcp` with `/healthz` exempt; unit-test allowed, disallowed, port-suffixed, case-differing, and unset cases
 - [ ] 3.8 Implement failed-auth rate limiting with `TRUST_PROXY`-aware source IP resolution and a bounded store; unit-test limit reached, window expiry, per-IP isolation, successes not counted, and forwarding headers ignored versus honored
 - [ ] 3.9 Wire authentication ahead of session lookup on `/mcp`; test that a wrong key with a live session ID returns the same `401` as with an unknown ID and does not reset the idle timer
 - [ ] 3.10 Build the fake stdio MCP server fixture under `test/` (echo tool, slow tool with scalable delay and progress notifications, crash-on-demand tool, a mode that spawns a grandchild, a mode that ignores stdin EOF and `SIGTERM`, a mode that takes a configurable time to exit after stdin EOF)

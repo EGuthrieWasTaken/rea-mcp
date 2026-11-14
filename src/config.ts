@@ -83,7 +83,7 @@ const logLevel = (env: Environment): LogLevel => {
 };
 
 // A DNS name or a bracketed IPv6 literal, with an optional port that is ignored.
-const HOST_ENTRY = /^(\[[0-9a-f:.]+\]|[a-z0-9]([a-z0-9.-]*[a-z0-9])?)(:\d{1,5})?$/;
+const HOST_ENTRY = /^(\[[0-9a-f:.]+\]|[a-z0-9]([a-z0-9.-]*[a-z0-9])?\.?)(:\d{1,5})?$/;
 
 const allowedHosts = (env: Environment): readonly string[] => {
   const raw = read(env, "ALLOWED_HOSTS");
