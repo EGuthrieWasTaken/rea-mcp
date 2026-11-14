@@ -54,6 +54,24 @@ include the key or any part of it.
 - **WHEN** `REA_MCP_API_KEY_FILE` names a path that does not exist
 - **THEN** the gateway exits non-zero
 
+### Requirement: Keys must be usable in a request header
+The gateway SHALL refuse to start when a configured key contains a control
+character, such as a line break, because such a key can never match a header
+value, and when `REA_MCP_API_KEY_FILE` names a file that holds no key. The
+startup error SHALL name the variable and SHALL NOT include the key.
+
+#### Scenario: Key file with more than one line
+- **WHEN** `REA_MCP_API_KEY_FILE` names a file holding a valid key, a line break and further text
+- **THEN** the gateway exits non-zero and names `REA_MCP_API_KEY_FILE`
+
+#### Scenario: Empty key file
+- **WHEN** `REA_MCP_API_KEY_FILE` names a file that is empty or holds only whitespace
+- **THEN** the gateway exits non-zero and names `REA_MCP_API_KEY_FILE`
+
+#### Scenario: Control character in a key
+- **WHEN** `REA_MCP_API_KEY` contains a control character
+- **THEN** the gateway exits non-zero, names `REA_MCP_API_KEY`, and the error does not contain the key
+
 ### Requirement: Header authentication on the MCP endpoint
 Every request to `/mcp`, regardless of method, SHALL be authenticated by an
 `x-api-key` request header matching one of the accepted keys before any MCP

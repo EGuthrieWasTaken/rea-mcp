@@ -9,12 +9,17 @@ and its analysis engines run reproducibly and with least privilege on unRAID.
 
 ### Requirement: Image platform and base
 The image SHALL be built from `docker/Dockerfile` as a multi-stage build for
-`linux/amd64` on a `node:24-bookworm-slim` runtime base. Build-only tools (such
-as `curl` and `unzip`) SHALL NOT be present in the final stage.
+`linux/amd64` on a `node:24-bookworm-slim` runtime base, and its Node.js SHALL be
+version 24.22.1 or newer, the minimum REA admits on the Node 24 line. Build-only
+tools (such as `curl` and `unzip`) SHALL NOT be present in the final stage.
 
 #### Scenario: Build-only tools absent
 - **WHEN** the final image is inspected
 - **THEN** `curl` and `unzip` are not installed in it
+
+#### Scenario: Node meets REA's minimum
+- **WHEN** `node --version` is run in the image
+- **THEN** it reports 24.22.1 or newer
 
 ### Requirement: Pinned, verified Ghidra
 Ghidra SHALL be downloaded during the image build from the URL given by
@@ -32,14 +37,16 @@ repository.
 - **THEN** the build fails and no image is produced
 
 ### Requirement: Analysis toolchain present
-The final image SHALL contain a full JDK of the major version required by the
-pinned Ghidra release, a procps-compatible `ps`, `tshark` 4.x, and GNU binutils
+The final image SHALL contain a full JDK, including `javac`, of the major
+version required by the pinned Ghidra release (REA's doctor requires `javac`, so
+a JRE is not enough), a procps-compatible `ps`, `tshark` 4.x, and GNU binutils
 (`objdump`), all resolvable on `PATH` for the runtime user. Rizin SHALL be
 included when it is installable from the base distribution's package sources.
+The image SHALL set `GHIDRA_INSTALL_DIR=/opt/ghidra` so that REA locates Ghidra.
 
 #### Scenario: Tools resolvable by the runtime user
 - **WHEN** a shell is run in the container as the runtime user
-- **THEN** `java`, `ps`, `tshark`, and `objdump` each run and report a version
+- **THEN** `java`, `javac`, `ps`, `tshark`, and `objdump` each run and report a version
 
 #### Scenario: Headless Ghidra starts
 - **WHEN** Ghidra's headless analyzer is invoked in the container as the runtime user
@@ -75,7 +82,9 @@ and with `--cap-drop=ALL --security-opt=no-new-privileges:true`.
 The image SHALL declare `/samples` and `/work` as volumes and use `/work` as
 its working directory. The gateway SHALL NOT write to `/samples` and SHALL
 operate correctly when `/samples` is mounted read-only. All persistent output
-(Ghidra projects, REA output) SHALL be written under `/work`.
+(Ghidra projects, REA output, per-session working directories, and the optional
+checkpoint root) SHALL be written under `/work`, and the runtime user's `HOME`
+SHALL be a writable directory under `/work`.
 
 #### Scenario: Read-only samples
 - **WHEN** `/samples` is mounted read-only and an analysis is run on a file in it
@@ -84,6 +93,25 @@ operate correctly when `/samples` is mounted read-only. All persistent output
 #### Scenario: Unwritable work directory
 - **WHEN** `/work` is not writable by uid 99
 - **THEN** the gateway reports a clear error identifying `/work` rather than failing obscurely during analysis
+
+### Requirement: Writable runtime locations
+The container SHALL provide a temporary directory at `/tmp` that uid 99 can
+write, and SHALL NOT set `TMPDIR` to a path that has a dot-prefixed element.
+REA places each Ghidra session's private runtime under the temporary directory
+and keeps its checkpoint leases under `/tmp` regardless of `TMPDIR`, and Ghidra
+aborts on project paths that contain a dot-prefixed element.
+
+#### Scenario: Temporary directory is writable
+- **WHEN** uid 99 creates a file in `/tmp` inside the running container
+- **THEN** the file is created
+
+#### Scenario: No dot-prefixed temporary path
+- **WHEN** the container's `TMPDIR` is read
+- **THEN** it is unset or a path with no dot-prefixed element
+
+#### Scenario: Unwritable temporary directory
+- **WHEN** `/tmp` is not writable by uid 99
+- **THEN** the entrypoint reports a clear error identifying `/tmp` instead of failing later during analysis
 
 ### Requirement: Health check and init process
 The image SHALL define a `HEALTHCHECK` that probes `GET /healthz` on the

@@ -2,12 +2,14 @@
 
 ## Why
 
-REA ("Reverse Engineer Anything", npm `rea-agents`) is a local stdio MCP server
-whose documentation describes no network mode, so it can only be used by an
-agent running on the same machine as the analysis tooling. We want to run REA
-and its engines (Ghidra, tshark, objdump/Rizin) on an unRAID server and use them
-from Claude (claude.ai custom connector) and Claude Code over HTTPS, which
-requires a remote MCP endpoint with authentication.
+REA ("Reverse Engineer Anything", npm `rea-agents`) is a local stdio MCP server.
+Version 6.9.0 adds an opt-in `rea mcp --http` mode, but that mode has no
+authentication and serves one client at a time (a new client's `initialize`
+replaces the open session), so it cannot be exposed to a network as it is. We
+want to run REA and its engines (Ghidra, tshark, objdump/Rizin) on an unRAID
+server and use them from Claude (claude.ai custom connector) and Claude Code
+over HTTPS, which requires a remote MCP endpoint with authentication and an
+independent REA process per session.
 
 ## What Changes
 
@@ -17,20 +19,29 @@ requires a remote MCP endpoint with authentication.
   header; refuse to start without a key of at least 32 characters.
 - Bound resource use: capped concurrent sessions, idle reaping, child cleanup
   on session end and on shutdown.
+- Give each session its own working directory, `/work/sessions/<session-id>`,
+  so concurrent sessions' outputs stay apart. This is tidiness, not a security
+  boundary.
+- Optionally share one Ghidra analysis checkpoint root across sessions
+  (`REA_GHIDRA_CHECKPOINT_DIR`, off by default), so a binary's analysis
+  survives session end, idle reaping and restarts.
+- Launch REA with an allowlisted environment and map `GHIDRA_MAX_HEAP` onto the
+  variable REA actually reads (`GHIDRA_HEADLESS_MAXMEM`).
 - Keep long-running tool calls alive through a reverse proxy that cuts idle
   origin responses at roughly 100 s (SSE keep-alives, progress forwarding).
 - Ship a multi-stage `linux/amd64` Docker image that runs as uid 99 / gid 100
-  with a pinned, hash-verified Ghidra and a pinned `rea-agents`.
+  with a pinned, hash-verified Ghidra, a full JDK, and a pinned `rea-agents`.
 - Ship a native unRAID Docker template (`unraid/rea-mcp.xml`) and icon.
 - Establish repository guard rails so that secrets and analysis samples cannot
   be committed (ignore rules, gitleaks in CI and pre-commit).
 - Add CI (lint, typecheck, test, gitleaks, template XML check, image build and
   smoke test) and user documentation (README, DESIGN, CLOUDFLARE, SECURITY).
 
-**Prerequisite gate:** the first implementation task is to verify how REA is
-launched as a standalone stdio MCP server. This is currently unverified. If REA
-cannot run that way, work stops and the finding is reported; no workaround is
-built.
+**Prerequisite gate (passed):** the first implementation task verified how REA
+is launched as a standalone stdio MCP server. It runs as
+`node <rea-agents>/scripts/rea.mjs mcp` (evidence in `docs/DESIGN.md`, section
+1). Had it not, work would have stopped and the finding been reported; no
+workaround would have been built.
 
 **Out of scope**
 
@@ -42,6 +53,11 @@ built.
 - Running `rea-agents setup` in the image (it edits agent configuration).
 - Multi-architecture images (amd64 only).
 - A web UI.
+- Security isolation between sessions or projects. Sessions are separate
+  processes with separate working directories, but they share one uid, `/work`
+  and `/samples`; a real boundary needs separate containers.
+- Per-conversation or per-workspace checkpoint namespaces, and automatic
+  pruning of checkpoint data.
 
 **Deviation from the original brief:** the brief's repo layout lists
 `LICENSE (MIT)`. The maintainer has since chosen **GPL-3.0** for this
@@ -57,12 +73,14 @@ relicensed.
   request, rate-limited on failure, and kept out of logs.
 - `mcp-http-gateway`: The HTTP surface: `/mcp` streamable HTTP bridging to
   REA, `/healthz`, Host allowlisting, keep-alives and progress forwarding for
-  long-running calls, configuration, and structured logging.
-- `session-management`: Lifecycle of per-session REA child processes: creation,
-  concurrency cap, idle reaping, termination, and graceful shutdown.
+  long-running calls, configuration, passthrough of analysis-engine settings
+  (heap, startup timeout, checkpoint directory), and structured logging.
+- `session-management`: Lifecycle of per-session REA child processes: creation
+  in a per-session working directory, concurrency cap, idle reaping,
+  termination (including checkpoint-aware grace), and graceful shutdown.
 - `container-image`: What the Docker image contains and guarantees: pinned and
-  verified third-party components, non-root runtime, volumes, healthcheck,
-  signal handling.
+  verified third-party components, a full JDK, non-root runtime, volumes and
+  writable runtime locations, healthcheck, signal handling.
 - `unraid-template`: The unRAID Docker template and its fields, defaults, and
   validity checks.
 - `secret-hygiene`: Repository-level guarantees that no secrets, samples, or
@@ -83,8 +101,9 @@ None. This is the first change in the repository.
   `docs/CLOUDFLARE.md`, `docs/SECURITY.md`, `.env.example`.
 - **New tooling config:** `.gitleaks.toml`, `.pre-commit-config.yaml`.
 - **Dependencies:** `@modelcontextprotocol/sdk`, exact-pinned `rea-agents`,
-  Node 24, a JDK matching the pinned Ghidra, Ghidra (build-time download),
-  tshark, binutils, procps, optionally Rizin.
+  Node 24.22.1 or newer (REA's floor on the 24 line), a full JDK (with `javac`)
+  matching the pinned Ghidra, Ghidra (build-time download), tshark, binutils,
+  procps, optionally Rizin.
 - **External systems:** GHCR package `ghcr.io/eguthriewastaken/rea-mcp`
   (publishing requires maintainer approval), a Cloudflare Tunnel operated by
   the user, Claude custom connector / Claude Code as clients.

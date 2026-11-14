@@ -11,8 +11,7 @@ outlives the session or gateway that owns it.
 ### Requirement: One REA process per MCP session
 The gateway SHALL start exactly one REA child process for each MCP session, at
 session initialization, and SHALL route that session's messages only to that
-process. Two sessions SHALL NOT share a REA process. Each child SHALL be
-started with `/work` as its working directory.
+process. Two sessions SHALL NOT share a REA process.
 
 #### Scenario: Two concurrent sessions
 - **WHEN** two clients each initialize a session
@@ -21,6 +20,25 @@ started with `/work` as its working directory.
 #### Scenario: Child fails to start
 - **WHEN** the REA process cannot be spawned or exits before completing initialization
 - **THEN** the client receives an error response, no session is registered, and the failure is logged
+
+### Requirement: Per-session working directory
+Before spawning a session's REA process, the gateway SHALL create
+`/work/sessions/<session-id>` and SHALL start the process with that directory as
+its working directory. This keeps sessions' outputs apart; it is not an
+access-control boundary, because every child runs as the same user and shares
+`/work` and `/samples`.
+
+#### Scenario: Per-session working directory
+- **WHEN** a session is initialized
+- **THEN** `/work/sessions/<session-id>` exists and is the working directory of that session's REA process
+
+#### Scenario: Sessions have different working directories
+- **WHEN** two sessions are live
+- **THEN** their REA processes have different working directories
+
+#### Scenario: Working directory cannot be created
+- **WHEN** `/work/sessions/<session-id>` cannot be created
+- **THEN** the client receives an error response, no REA process is started, and no session is registered
 
 ### Requirement: Concurrent session cap
 The gateway SHALL allow at most `MAX_SESSIONS` live sessions. An authenticated
@@ -68,28 +86,53 @@ the exit code or signal.
 - **THEN** the client receives an error for that call, and subsequent requests with that session ID receive `404`
 
 ### Requirement: Reliable child termination
-When ending a session the gateway SHALL request graceful termination of the REA
-process, and SHALL forcibly kill it if it has not exited within a bounded grace
-period. Termination SHALL extend to processes the REA child started (such as
-Ghidra), so that none are left running.
+When ending a session the gateway SHALL terminate the REA process in this
+order: close the child's standard input, which REA treats as a shutdown request
+and answers with its own cleanup; wait up to the grace period for it to exit;
+send `SIGTERM` to the child's process group and wait 2 seconds; then send
+`SIGKILL` to the group. Termination SHALL extend to processes the REA child
+started (such as Ghidra), so that none are left running.
 
 #### Scenario: Child ignores the termination request
-- **WHEN** a REA process does not exit within the grace period after being asked to terminate
+- **WHEN** a REA process does not exit within the grace period after its standard input is closed and does not exit after `SIGTERM`
 - **THEN** the gateway forcibly kills it
 
 #### Scenario: No orphaned analysis processes
 - **WHEN** a session whose REA process had started Ghidra is ended
 - **THEN** neither the REA process nor the Ghidra process remains running
 
+#### Scenario: Prompt exit is not delayed
+- **WHEN** a REA process exits within the grace period after its standard input is closed
+- **THEN** the gateway releases the session at once, without sending `SIGTERM` or `SIGKILL`
+
+### Requirement: Termination grace period
+The grace period SHALL be 5 seconds, except that when `REA_GHIDRA_CHECKPOINT_DIR`
+is set it SHALL be 30 seconds, so that REA can finish saving its analysis
+checkpoint before it is signalled.
+
+#### Scenario: Default grace period
+- **WHEN** `REA_GHIDRA_CHECKPOINT_DIR` is unset and a REA process has not exited 5 seconds after its standard input is closed
+- **THEN** the gateway sends it `SIGTERM`
+
+#### Scenario: Checkpointing extends the grace period
+- **WHEN** `REA_GHIDRA_CHECKPOINT_DIR` is set and a session's REA process needs 10 seconds to exit after its standard input is closed
+- **THEN** the process is not signalled before it exits
+
 ### Requirement: Graceful shutdown
 On `SIGTERM` or `SIGINT` the gateway SHALL stop accepting new connections and
-new sessions, terminate every REA child process, and exit with status `0`
-within a bounded shutdown period that fits inside Docker's default 10-second
-stop timeout.
+new sessions, terminate every REA child process in parallel as described under
+reliable child termination, and exit with status `0` within a bounded shutdown
+period: 10 seconds or less when `REA_GHIDRA_CHECKPOINT_DIR` is unset, so that it
+fits inside Docker's default stop timeout, and 40 seconds or less when it is
+set, in which case the container's stop timeout must be at least that long.
 
 #### Scenario: SIGTERM with live sessions
-- **WHEN** the gateway receives `SIGTERM` while sessions are live
-- **THEN** all REA child processes are terminated and the gateway exits `0` before the stop timeout
+- **WHEN** the gateway receives `SIGTERM` while sessions are live and checkpointing is not enabled
+- **THEN** all REA child processes are terminated and the gateway exits `0` within 10 seconds
+
+#### Scenario: SIGTERM with live sessions and checkpointing
+- **WHEN** the gateway receives `SIGTERM` while sessions are live and `REA_GHIDRA_CHECKPOINT_DIR` is set
+- **THEN** all REA child processes are terminated and the gateway exits `0` within 40 seconds
 
 #### Scenario: Requests during shutdown
 - **WHEN** an `initialize` request arrives after shutdown has begun
