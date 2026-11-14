@@ -1,9 +1,12 @@
 # rea-mcp design (long form)
 
-> **Status: in progress.** Sections are added as the tasks of the OpenSpec change
-> `bootstrap-rea-mcp-gateway` are completed. The decisions that shape the specs
-> live in [`openspec/changes/bootstrap-rea-mcp-gateway/design.md`](../openspec/changes/bootstrap-rea-mcp-gateway/design.md);
-> this document records the evidence behind them.
+> **Status (2026-11-14).** The gateway, image, template, icon and their checks are built and verified on an
+> unRAID 7.3.4 host (sections 8 to 11). The CI jobs and the GHCR workflow are written but have not run on
+> GitHub (section 12), and the end-to-end checks with real clients and a tunnel are still to do (section 14).
+> Section 13 is the current list of what is **UNVERIFIED**. The decisions that shape the specs live in
+> [`openspec/changes/bootstrap-rea-mcp-gateway/design.md`](../openspec/changes/bootstrap-rea-mcp-gateway/design.md);
+> this document records the evidence behind them. User-facing guidance is in the
+> [README](../README.md), [`SECURITY.md`](SECURITY.md) and [`CLOUDFLARE.md`](CLOUDFLARE.md).
 
 Evidence labels used below:
 
@@ -22,6 +25,32 @@ Findings about REA were gathered against:
 | Source read | `github.com/morluto/rea` at commit `cdc4541ef707f256f83abe5018df01a25182cf0b` (`package.json` version `6.9.0`) |
 | Runtime | Node 22.23.4, Linux x86_64 |
 | Date | 2026-11-13 |
+
+## Architecture at a glance
+
+```
+client (Claude Code or the claude.ai connector)
+  --HTTPS--> your proxy or tunnel (outside this project)
+  --HTTP--> container, user 99:100, tini as PID 1, entrypoint checks /work and /tmp
+        gateway (Node 24, plain node:http)         src/main.ts, src/http/*, src/sessions/*
+          /healthz   /mcp (POST, GET, DELETE)
+          for each MCP session:  one REA child, started in /work/sessions/<id>, over stdio
+            REA (rea-agents 6.9.0) --> Ghidra 12.1.4 on a Temurin 21 JDK, tshark, objdump
+```
+
+| Concern | Decision | Evidence |
+|---|---|---|
+| Gateway | A thin custom relay on the MCP SDK between a streamable-HTTP transport and a stdio child; not `supergateway`, `mcp-proxy` or per-session `rea mcp --http` | section 6 |
+| Launching REA | `node <rea-agents>/scripts/rea.mjs mcp`, no shell, no `npx`, an allowlisted environment with no key variable | sections 1, 2.2; design D8 |
+| Authentication | Static key in `x-api-key`, at least 32 characters, SHA-256 digests compared in constant time, checked before any session lookup; failed attempts limited per source address; refuses to start without a key | design D4, D5; section 11.4 |
+| Sessions | One REA process per MCP session. A slot is reserved first (cap `MAX_SESSIONS`, `503` over it); the gateway makes the session directory, starts the child and performs `initialize` itself, so a failed start is a plain `502`. Idle reaping spares sessions with a call in flight. Ending a session closes the child's stdin, waits the grace (5 s, 30 s with checkpoints), then `SIGTERM`, 2 s, `SIGKILL`, to the whole process group | design D6, D13; sections 7, 11.5 |
+| Keep-alives | The SDK transport writes an SSE comment every `keepAliveMs` (15 s) while a request is open; progress tokens are mapped to request ids so progress reaches the right stream | design D7; section 7 |
+| Ghidra and JDK | Ghidra 12.1.4 (hash-verified) on Temurin 21.0.13+9 (hash-verified), on a bookworm Node 24.22.3 base pinned by digest | sections 8, 9, 11.1 |
+| Heap | `GHIDRA_MAX_HEAP` becomes `GHIDRA_HEADLESS_MAXMEM`, the one setting REA honours | sections 2.4, 11.3 |
+| Checkpoints | Optional, shared, off by default: REA saves a binary's Ghidra analysis keyed by its bytes | sections 2.8, 5.2, 11.6 |
+| Image and runtime | Multi-stage `linux/amd64`, non-root, no capabilities, `/samples` read-only, health check, an entrypoint that explains an unwritable `/work` or `/tmp` | sections 11.1, 11.2, 11.4 |
+| unRAID | A template with a masked empty key, read-only samples and eight advanced variables, checked by script and by unRAID's own parser; not in Community Apps | sections 5.5, 10 |
+| Security posture | The key grants command execution in the container, so isolation of the container matters | section 11.5; `docs/SECURITY.md` |
 
 ## Summary: the prerequisite gate (task 2.3)
 
@@ -452,6 +481,9 @@ kept as the record of why they were made.
 | REA supports Node 24 | Only from 24.22.1 (**Ran**: admission check); actual behaviour on Node 24 is still **UNVERIFIED** |
 
 ### 4.2 Still UNVERIFIED
+
+This is the original list, annotated as items were closed; the numbers are cited elsewhere, so it is kept.
+Section 13 is the current state.
 
 Each item names the task that should close it.
 
@@ -1382,4 +1414,65 @@ package. The tag policy in `scripts/image_tags.sh` is a proposal for open questi
 Also run once on a clean copy of this branch in a Node 24.22.3 container (as root): `npm run lint` and
 `npm run typecheck` clean, and `npm test` gave 358 passed and 1 skipped. The skip is
 `it.skipIf(process.getuid?.() === 0)` in `test/keys.test.ts`, which a root run skips.
+
+## 13. What is still UNVERIFIED (current)
+
+As of 2026-11-14. "Closed" items are in the list of section 4.2, with their evidence; this table is only what is open.
+An item is **UNVERIFIED** until a primary source or a run shows it.
+
+| Item | Why open | What would close it |
+|---|---|---|
+| The CI jobs (`template`, `image`, `gate`) and the branch ruleset on GitHub | Written and run locally, never on a runner (section 12); the ruleset import (task 6.0a) is the maintainer's | A pull request; a seeded violation on a scratch branch; the maintainer importing the ruleset |
+| Dependabot's `docker` entry proposing digest updates and ignoring Node majors | Configured, never run | The first Dependabot run after a push |
+| GHCR publishing | Written and disabled (task 6.4); needs the maintainer's approval; the package must then be set public | Maintainer approval, then a first publish |
+| Claude Code and the claude.ai connector against this server, including whether each conversation gets its own session and whether `DELETE /mcp` or `close_binary` is sent on exit (item 18) | Needs real clients (task 8.3). Anthropic's page says a connector accepts fixed request headers (**Docs**), which is not the same as trying it | Task 8.3 (section 14) |
+| A Cloudflare Tunnel in front of it: the idle and absolute limits for a stream that has started, and what happens to a call whose connection a proxy cut | Cloudflare documents a 125 s default Proxy Read Timeout for a first response (**Docs**); the rest is not documented on the pages read | Task 8.3 with a call longer than 125 s |
+| What `DELETE /mcp` should do to a request in flight | Observed: it ends as `200` with an empty body (section 11.5); the spec is silent | A maintainer decision, then a spec line and a test |
+| APK decompilation | No APK sample and no JADX in the image by design | Not planned |
+| Analysis and checkpoint behaviour on a truly large Program (tens of MB), and whether 30 s suffices | The largest sample is 770 KB | A larger permitted target |
+| Four concurrent sessions, 8G heaps, and the effect of unRAID's own PID limit setting | Only two sessions were run, at the default heap | A load test on the host |
+| unRAID: the "New Permissions" tool and checkpoint directories; whether array stop and shutdown use the Docker Stop Timeout; whether a `--stop-timeout` in `ExtraParams` is honoured | Not run, by instruction, or not read | The maintainer on the host |
+| unRAID: how the edit form renders the template (mask, advanced section, Required) | Browser-side code, not rendered here | The maintainer opening it |
+| Which REA tools write to which paths (item 9) | Only `decompile_all` was checked; `capture_process_scenario` writes wherever uid 99 can | An audit if it matters |
+| `TMPDIR` under a long per-session path (item 19) | `TMPDIR` stays unset (section 5.1) | Only if `TMPDIR` is ever set |
+| Upstream's `verify:ghidra:checkpoints` script | Not run | Optional |
+
+Closed since the list of section 4.2 was written but not yet marked there: item 10 (the SDK's SSE comment frames
+and forced-SSE responses, **Ran** in section 7) and item 12's first half (the connector accepts a fixed request
+header, **Docs**, 2026-11-14: Anthropic's custom-connector help page lists "Request headers"). Item 11 and the
+Community Apps rules are moot, since submission was decided against (section 5.5).
+
+## 14. Hand-over for task 8.3 (maintainer steps)
+
+Everything below needs the maintainer's account, client or network, so none of it has been done. Use a
+throwaway key and a samples folder holding only files you may analyze.
+
+1. **Run the container locally**, as in the README's quick start, on a free port, with `MAX_SESSIONS=2`.
+2. **Claude Code:** `claude mcp add --transport http rea http://localhost:<port>/mcp --header "x-api-key: <key>"`,
+   then ask it to list the `rea` tools and to analyze one permitted sample. Watch `docker logs` for
+   `session started`.
+3. **Sessions and cleanup:** start a second Claude Code conversation and see whether it gets a separate session
+   (two `session started` lines); end one and see whether `DELETE /mcp` arrives (`session ended`, reason
+   `deleted by client`) or the session is only reaped after `SESSION_IDLE_TIMEOUT_SEC`; ask the agent to call
+   `close_binary` when done and see that Ghidra's process goes away (`docker exec <container> ps aux`).
+4. **With checkpointing** (`REA_GHIDRA_CHECKPOINT_DIR=/work/checkpoints`, Docker Stop Timeout at least 40 s):
+   annotate a function, end the conversation, start a new one on the same binary, and see the annotation;
+   then try to open the binary from two conversations at once and see "another REA session owns this checkpoint".
+5. **A Cloudflare Tunnel** (`docs/CLOUDFLARE.md`): route `<host>` to the container, set `TRUST_PROXY=true` and
+   `ALLOWED_HOSTS=<host>`, check `https://<host>/healthz`, then repeat step 2 against `https://<host>/mcp`. Try one
+   call that runs longer than 125 s (a large target) and note what the client sees.
+6. **claude.ai custom connector:** Customize, Connectors, Add custom connector, URL `https://<host>/mcp`,
+   request header `x-api-key` with your key, no sign in; enable it in a conversation and run an analysis.
+7. Record each outcome here, as **Ran** or as a defect.
+
+## 15. Review of the documents for secrets (task 7.5)
+
+On 2026-11-14, over every tracked and new file (**Ran**): `gitleaks detect` over the full history and over the working tree
+(`--no-git`), both with the repository's `.gitleaks.toml`, found no leaks. A search for `x-api-key` found only
+placeholders (`<key>`), prose, or code that reads the header; the tests generate their keys at run time. The 32-or-more
+character hex strings are the pinned SHA-256 values and digests of sections 8 and 9, the CI tool hashes, action and
+commit identifiers; the one long base64 string is the public npm integrity value of `rea-agents` (section 1). The only
+IP addresses are `127.0.0.1`, RFC 5737 documentation addresses and test fixtures; the one email-shaped string is a
+reserved `.example` test value. The only host names are public GitHub, GHCR, Docker, Debian, Adoptium, Node.js,
+unRAID, Cloudflare and Anthropic locations. No real host name, key or token of the maintainer appears.
 
