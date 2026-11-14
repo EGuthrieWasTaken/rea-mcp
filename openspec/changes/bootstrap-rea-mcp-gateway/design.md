@@ -369,7 +369,7 @@ canonical list with evidence and the task that closes each item.
 
 ## Open Questions
 
-1. `GPL-3.0-only` or `GPL-3.0-or-later`?
+1. `GPL-3.0-only` or `GPL-3.0-or-later`? **Decided 2026-11-14: `GPL-3.0-only`.**
 2. Should the rate-limit thresholds (D5) be configurable, and are 10 failures
    per 60 s acceptable defaults?
 3. Is `503` + `Retry-After` the wanted response at the session cap, as opposed
@@ -377,13 +377,15 @@ canonical list with evidence and the task that closes each item.
 4. Which image tags should CI publish (`latest` on `main`, `vX.Y.Z` on tags,
    commit SHA)? Publishing to GHCR needs explicit maintainer approval first.
 5. Should the GHCR package be public (required for a template that pulls
-   without registry credentials)?
+   without registry credentials)? **Decided 2026-11-14: public.** Creating and
+   publishing it still needs the maintainer's approval at that time.
 6. Is Rizin wanted if it is not in the distribution and would need a
    third-party download? (Task 4.2: bookworm does not package it, so the image
    omits it unless the maintainer says otherwise.)
 7. Is submission to Community Apps intended, or only a private template URL?
    (Task 5.1: `ca_profile.xml` is required only for a submission, which also needs
    a passing Validate and Scan on `ca.unraid.net`, a maintainer step.)
+   **Decided 2026-11-14: no submission; a private template URL only.**
 8. Should `/work/sessions/<session-id>` be deleted when a session ends, or kept?
    Proposed: kept, with cleanup left to the operator.
 9. Should the termination grace periods (5 s, and 30 s with checkpointing) stay
@@ -394,3 +396,5 @@ canonical list with evidence and the task that closes each item.
     Temurin tarball (`docs/DESIGN.md` section 9.3), or move to Debian 13, which
     packages JDK 21 but changes the `container-image` spec (section 9.5)?
     Proposed: keep bookworm with the tarball, as the spec says.
+    **Decided 2026-11-14: keep bookworm with the tarball.** The `secret-hygiene`
+    fetch scenario was amended to list the JDK archive.

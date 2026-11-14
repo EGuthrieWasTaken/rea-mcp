@@ -53,7 +53,7 @@ Ask the maintainer before pushing or publishing to GHCR.
 - [ ] 5.2 Create `unraid/icon.png` as original artwork at the size the guidelines recommend; verify it is a valid PNG with no third-party marks
 - [ ] 5.3 Write `unraid/rea-mcp.xml` with all metadata fields, the port, masked empty required `REA_MCP_API_KEY`, read-only `/samples`, `/work` default, and the eight advanced variables (`REA_GHIDRA_CHECKPOINT_DIR` empty by default); verify with `xmllint --noout`
 - [ ] 5.4 Write the template check script (required elements and `Config` entries, empty masked key, `ro` samples, lowercase repository, defaults equal to gateway defaults); verify it fails on a deliberately broken copy
-- [ ] 5.5 Add `ca_profile.xml` if task 5.1 shows it is expected; otherwise note the decision in `docs/DESIGN.md`
+- [x] 5.5 Add `ca_profile.xml` if task 5.1 shows it is expected; otherwise note the decision in `docs/DESIGN.md`
 
 ## 6. CI
 

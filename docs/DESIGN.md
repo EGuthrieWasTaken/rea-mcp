@@ -534,7 +534,8 @@ The seven in the change's `design.md` stand. The discovery adds:
    no JDK 21, so the JDK comes from a hash-verified Temurin tarball (section 9.3).
    Debian 13 (trixie) packages JDK 21 (section 9.5), which would let the image take
    the JDK from apt with Debian's security updates, but it changes the
-   `container-image` spec. Which does the maintainer want?
+   `container-image` spec. **Decided 2026-11-14 (section 5.5): keep bookworm and the
+   tarball.**
 
 ## 5. Decisions taken since discovery
 
@@ -589,6 +590,27 @@ docs; not run with Ghidra). Wait longer than D6's
 must still fit inside the container's stop timeout, so the longer grace needs a
 matching stop timeout in the template (open question 4). A killed child never
 corrupts a checkpoint, but loses edits made since the last save (2.8).
+
+### 5.5 Decisions of 2026-11-14
+
+Answered by the maintainer when the image work began. They close open questions 1, 5, 6
+and 7 below and the change's `design.md` open questions 1, 5, 7 and 11.
+
+- **JDK source: a Temurin tarball on bookworm.** The image keeps its `node:24-bookworm-slim`
+  base and takes the JDK from the hash-verified Temurin 21.0.13+9 archive of section 9.3,
+  fetched in its own build stage. Debian 13 and copying from an `eclipse-temurin` image were
+  not chosen. The one spec edit this needs is in the `secret-hygiene` capability: the
+  scenario "Build fetches only pinned tooling" now lists the JDK archive. Nothing updates the
+  JDK automatically; a security update means bumping the version, URL and hash by hand.
+- **Community Apps: not submitting.** The template is installed from a private template URL
+  (or by copying the XML to the server), so no `ca_profile.xml` is added. This closes task
+  5.5. The Community Apps items in section 10.5 (template path, `ExtraParams`, the bare
+  `Tools:` category, icon size, the two-factor policy) stay **UNVERIFIED** and unneeded; if
+  the decision changes, add `ca_profile.xml` (section 10.4) and run Validate and Scan.
+- **GHCR package: public.** A template can then pull without registry credentials. Nothing is
+  created or published yet; the package and its first publication still need the
+  maintainer's go-ahead at that time (task 6.4).
+- **Licence: GPL-3.0-only stays**, as in `package.json` and `LICENSE`.
 
 ## 6. Gateway implementation choice (task 2.4)
 
