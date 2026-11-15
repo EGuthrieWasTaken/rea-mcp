@@ -1395,12 +1395,12 @@ container was known to be running, so an early exit gave no message; and `docker
 ## 12. CI jobs written ahead of their first run (tasks 6.2 to 6.4)
 
 Written on 2026-11-14 and checked locally first; a workflow is only verified by a pull request run, which the
-maintainer then allowed (pull request 5; results below the table). Task 6.3 is ticked on that run, while 6.2 and 6.4
-stay unticked. What was checked locally, and what remained:
+maintainer then allowed (pull request 5; results below the table). Task 6.3 is ticked on that run, and 6.2 on the
+seeded-violation run of 2026-11-15 (below); 6.4 stays unticked. What was checked locally, and what remained:
 
 | Piece | Checked here (**Ran**) | Still to do |
 |---|---|---|
-| `template` job in `ci.yml` | `scripts/check_template.py` passes and its self-test rejects all 31 seeded violations (section 10.8) | Run on a pull request; seed one violation on a scratch branch and see the job fail |
+| `template` job in `ci.yml` | `scripts/check_template.py` passes and its self-test rejects all 31 seeded violations (section 10.8) | Done: passed on pull requests and on `main`, and failed on a seeded violation (below) |
 | `image` job in `ci.yml` | The same Docker commands ran on this host: the build (section 11.1), `scripts/check_hash_pins.sh` (an altered Ghidra or JDK hash fails the build on the checksum and leaves no image) and `scripts/smoke_test.sh` (section 11.7) | Done: passed on a runner (below) |
 | `gate` | Parsed with the `yaml` package: every job other than `gate` is in its `needs` | Seeing it fail when a job fails |
 | `.github/workflows/publish.yml` | Parses; has no automatic trigger and a job switched off with `if: false`; empty top-level `permissions`, job-level `contents: read` and `packages: write`; no third-party action. `scripts/image_tags.sh` gives `latest` and `sha-<12>` for `main`, `X.Y.Z` and `sha-<12>` for a `vX.Y.Z` tag, and refuses every other ref and malformed input | Not to be enabled or run until the maintainer approves (task 6.4) |
@@ -1429,8 +1429,35 @@ Also run once on a clean copy of this branch in a Node 24.22.3 container (as roo
   3.9 and 3.13 (**Ran**). A lesson for the checker: the self-test found the bug only because it exercises odd
   inputs, and only a runner with a different Python could show it.
 - The other six jobs (`lint`, `typecheck`, `test`, `secrets`, `hygiene`, `openspec`) passed.
-- Task 6.2 stays unticked until `template` passes on the pull request and a seeded violation has been tried on a
-  scratch branch, which needs a second push.
+- Task 6.2 stayed unticked until `template` passed and a seeded violation had been tried on a scratch branch (next).
+
+### Seeded violations, and the jobs passing (task 6.2, 2026-11-15)
+
+- **Passing.** The final run of pull request 5 (run 43665105676) and the push run on `main` after the squash merge
+  (run 43681029352, commit `a5a2cfa`) each passed all nine jobs, `secrets` (gitleaks over the full history) and
+  `template` included.
+- **Failing on purpose.** A scratch branch off `main` carried two commits: a random credential-shaped string
+  (`api_key = "<64 hex digits made at run time>"`, in `scratch-seeded-credential.txt`; not a credential for anything)
+  and `<Privileged>true</Privileged>` in the template. Its draft pull request (number 6, run 43681170242) gave:
+
+  | Job | Result | Why, from the log |
+  |---|---|---|
+  | `secrets` | fail | gitleaks: rule `generic-api-key`, file `scratch-seeded-credential.txt`, the seed commit, value redacted, "9 commits scanned", "leaks found: 1" |
+  | `template` | fail | `template: <Privileged> is 'true'; it must be 'false'` |
+  | `gate` | fail | its `needs` include the two jobs above |
+  | `hygiene`, `image`, `lint`, `openspec`, `test`, `typecheck` | pass | the seeds touch nothing they check, so only the two intended jobs failed |
+
+  Before pushing, the same two violations were caught locally (gitleaks: 1 finding; the checker: the message
+  above). The pull request was closed without merging and the branch deleted. GitHub keeps a closed pull request's
+  head commit reachable through its `refs/pull/6/head` ref, so the seeded string remains visible there; it is
+  random and worthless, and it is not in `main`, whose history a squash merge never carries it into.
+- **The branch ruleset.** The repository's rulesets, read through the API, are now the single imported `main`
+  ruleset. Task 6.0a also asks the maintainer to confirm that a direct push to `main` is rejected, which was not tried here.
+- **Dependabot.** Its first runs, on 2026-11-15, succeeded for both the `github_actions` and the `docker` entries.
+  The `docker` run read the Dockerfile's `FROM` line, reported "Latest version is 24-bookworm-slim" and "No update
+  needed for node 24-bookworm-slim", and opened no pull request, which is right because the digest pinned on
+  2026-11-14 is current. Whether it proposes a new digest when the tag moves, and skips a new Node major as configured,
+  cannot be seen until something changes.
 
 ## 13. What is still UNVERIFIED (current)
 
@@ -1439,8 +1466,8 @@ An item is **UNVERIFIED** until a primary source or a run shows it.
 
 | Item | Why open | What would close it |
 |---|---|---|
-| `template` and `gate` on GitHub, a seeded violation on a scratch branch, and the branch ruleset | `image` and six other jobs passed on pull request 5; `template` failed on a bug since fixed (section 12); the ruleset import (task 6.0a) is the maintainer's | The next pull request run; a seeded violation on a scratch branch; the maintainer importing the ruleset |
-| Dependabot's `docker` entry proposing digest updates and ignoring Node majors | Configured, never run | The first Dependabot run after a push |
+| That a direct push to `main` is rejected by the imported ruleset | The ruleset is in place (read through the API); the confirmation is the maintainer's (task 6.0a) | The maintainer trying a direct push |
+| Dependabot's `docker` entry proposing a new digest when the tag moves, and skipping a new Node major | It ran and found `node 24-bookworm-slim` current (section 12); nothing has changed since | The tag moving, or a new Node major appearing |
 | GHCR publishing | Written and disabled (task 6.4); needs the maintainer's approval; the package must then be set public | Maintainer approval, then a first publish |
 | Claude Code and the claude.ai connector against this server, including whether each conversation gets its own session and whether `DELETE /mcp` or `close_binary` is sent on exit (item 18) | Needs real clients (task 8.3). Anthropic's page says a connector accepts fixed request headers (**Docs**), which is not the same as trying it | Task 8.3 (section 14) |
 | A Cloudflare Tunnel in front of it: the idle and absolute limits for a stream that has started, and what happens to a call whose connection a proxy cut | Cloudflare documents a 125 s default Proxy Read Timeout for a first response (**Docs**); the rest is not documented on the pages read | Task 8.3 with a call longer than 125 s |

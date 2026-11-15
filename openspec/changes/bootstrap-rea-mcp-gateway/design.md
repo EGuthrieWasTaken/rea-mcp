@@ -343,9 +343,10 @@ fixed request header (read, not tried).
 
 Still **UNVERIFIED**:
 
-- `template` and `gate` on GitHub (the first run found and fixed a bug), a seeded violation on a scratch branch,
-  the branch ruleset, Dependabot's `docker` entry, and GHCR publishing (written, disabled pending the
-  maintainer's approval). The `image` job has passed on a pull request.
+- That a direct push to `main` is rejected (the ruleset is imported; the maintainer confirms, task 6.0a);
+  Dependabot proposing a new digest when the tag moves and skipping a new Node major (its first run found nothing
+  to update); and GHCR publishing (written, disabled pending the maintainer's approval). The CI jobs have run on
+  GitHub, including the seeded-violation checks of task 6.2.
 - Claude Code and the claude.ai connector against this server: separate MCP session per conversation, and
   whether `DELETE /mcp` or `close_binary` is sent on exit (task 8.3).
 - A Cloudflare Tunnel in front of it: the limits for a stream that has started and then goes quiet, and what
