@@ -1,9 +1,13 @@
 # rea-mcp design (long form)
 
-> **Status: in progress.** Sections are added as the tasks of the OpenSpec change
-> `bootstrap-rea-mcp-gateway` are completed. The decisions that shape the specs
-> live in [`openspec/changes/bootstrap-rea-mcp-gateway/design.md`](../openspec/changes/bootstrap-rea-mcp-gateway/design.md);
-> this document records the evidence behind them.
+> **Status (2026-11-14).** The gateway, image, template, icon and their checks are built and verified on an
+> unRAID 7.3.4 host (sections 8 to 11). The CI jobs ran on the first pull request, where `image` passed and
+> `template` exposed a bug that is fixed (section 12); the GHCR workflow is written and disabled; and the
+> end-to-end checks with real clients and a tunnel are still to do (section 14).
+> Section 13 is the current list of what is **UNVERIFIED**. The decisions that shape the specs live in
+> [`openspec/changes/bootstrap-rea-mcp-gateway/design.md`](../openspec/changes/bootstrap-rea-mcp-gateway/design.md);
+> this document records the evidence behind them. User-facing guidance is in the
+> [README](../README.md), [`SECURITY.md`](SECURITY.md) and [`CLOUDFLARE.md`](CLOUDFLARE.md).
 
 Evidence labels used below:
 
@@ -22,6 +26,32 @@ Findings about REA were gathered against:
 | Source read | `github.com/morluto/rea` at commit `cdc4541ef707f256f83abe5018df01a25182cf0b` (`package.json` version `6.9.0`) |
 | Runtime | Node 22.23.4, Linux x86_64 |
 | Date | 2026-11-13 |
+
+## Architecture at a glance
+
+```
+client (Claude Code or the claude.ai connector)
+  --HTTPS--> your proxy or tunnel (outside this project)
+  --HTTP--> container, user 99:100, tini as PID 1, entrypoint checks /work and /tmp
+        gateway (Node 24, plain node:http)         src/main.ts, src/http/*, src/sessions/*
+          /healthz   /mcp (POST, GET, DELETE)
+          for each MCP session:  one REA child, started in /work/sessions/<id>, over stdio
+            REA (rea-agents 6.9.0) --> Ghidra 12.1.4 on a Temurin 21 JDK, tshark, objdump
+```
+
+| Concern | Decision | Evidence |
+|---|---|---|
+| Gateway | A thin custom relay on the MCP SDK between a streamable-HTTP transport and a stdio child; not `supergateway`, `mcp-proxy` or per-session `rea mcp --http` | section 6 |
+| Launching REA | `node <rea-agents>/scripts/rea.mjs mcp`, no shell, no `npx`, an allowlisted environment with no key variable | sections 1, 2.2; design D8 |
+| Authentication | Static key in `x-api-key`, at least 32 characters, SHA-256 digests compared in constant time, checked before any session lookup; failed attempts limited per source address; refuses to start without a key | design D4, D5; section 11.4 |
+| Sessions | One REA process per MCP session. A slot is reserved first (cap `MAX_SESSIONS`, `503` over it); the gateway makes the session directory, starts the child and performs `initialize` itself, so a failed start is a plain `502`. Idle reaping spares sessions with a call in flight. Ending a session closes the child's stdin, waits the grace (5 s, 30 s with checkpoints), then `SIGTERM`, 2 s, `SIGKILL`, to the whole process group | design D6, D13; sections 7, 11.5 |
+| Keep-alives | The SDK transport writes an SSE comment every `keepAliveMs` (15 s) while a request is open; progress tokens are mapped to request ids so progress reaches the right stream | design D7; section 7 |
+| Ghidra and JDK | Ghidra 12.1.4 (hash-verified) on Temurin 21.0.13+9 (hash-verified), on a bookworm Node 24.22.3 base pinned by digest | sections 8, 9, 11.1 |
+| Heap | `GHIDRA_MAX_HEAP` becomes `GHIDRA_HEADLESS_MAXMEM`, the one setting REA honours | sections 2.4, 11.3 |
+| Checkpoints | Optional, shared, off by default: REA saves a binary's Ghidra analysis keyed by its bytes | sections 2.8, 5.2, 11.6 |
+| Image and runtime | Multi-stage `linux/amd64`, non-root, no capabilities, `/samples` read-only, health check, an entrypoint that explains an unwritable `/work` or `/tmp` | sections 11.1, 11.2, 11.4 |
+| unRAID | A template with a masked empty key, read-only samples and eight advanced variables, checked by script and by unRAID's own parser; not in Community Apps | sections 5.5, 10 |
+| Security posture | The key grants command execution in the container, so isolation of the container matters | section 11.5; `docs/SECURITY.md` |
 
 ## Summary: the prerequisite gate (task 2.3)
 
@@ -177,7 +207,7 @@ versions (**Ran**):
   `REA_GHIDRA_STARTUP_TIMEOUT_MS` to it (`test/real-rea.test.ts`, 2 tests passed;
   **Ran**, [run 43635764228](https://github.com/EGuthrieWasTaken/rea-mcp/actions/runs/43635764228)).
   That covers REA's stdio server on Node 24. Its Ghidra-backed analysis on Node 24
-  is still **UNVERIFIED** (task 4.6).
+  was then run in the image, on all 22 sample binaries (section 11.5; **Ran**).
 
 ### 2.2 How REA finds Ghidra and Java
 
@@ -235,7 +265,7 @@ versions (**Ran**):
   `-Xmx`. The mechanism REA supports is to give each REA child
   `GHIDRA_HEADLESS_MAXMEM`, so `GHIDRA_MAX_HEAP` maps onto that variable in the
   child's environment. That the running Ghidra JVM then reports the expected
-  maximum heap is **UNVERIFIED** until task 4.4 runs it.
+  maximum heap was **UNVERIFIED** until task 4.4 ran it; it does (section 11.3).
 - The heap limit does not bound total memory: the Node process, the JVM outside
   its heap and Ghidra's native decompiler processes (their number follows the
   available CPUs) sit on top of it (**Docs**). Memory sizing must be
@@ -278,8 +308,8 @@ versions (**Ran**):
   For the image this means a writable temp directory **without a dot-prefixed
   path element** (for example `/tmp`, or `/work/tmp` but not `/work/.tmp`) is
   required, and Ghidra's own user directories need not be placed under `/work`
-  as D9 assumes. The actual behaviour with a read-only root filesystem is
-  **UNVERIFIED** (task 4.6).
+  as D9 assumes. With a read-only root filesystem and a `/tmp` mount, Ghidra works
+  unchanged (section 11.5; **Ran**).
 - **Tool outputs** go where the caller points. Tools that export or extract take
   a path, for example `decompile_all` ("Write every function's pseudocode into a
   directory and return a manifest"), `extract_artifact` and `export_web_scripts`
@@ -291,8 +321,8 @@ versions (**Ran**):
   Which tools accept which paths, and whether any are confined to a root, was
   not audited: **UNVERIFIED**.
 - **Read-only inputs**: REA's docs say it never writes to an APK it analyzes
-  (**Docs**). Whether Ghidra's import of a binary from a read-only `/samples`
-  works is **UNVERIFIED** (task 4.6). `REA_GHIDRA_PROJECT_PATH` and
+  (**Docs**). Ghidra's import of a binary from a read-only `/samples` works (section
+  11.5; **Ran**). `REA_GHIDRA_PROJECT_PATH` and
   `REA_GHIDRA_CHECKPOINT_DIR` exist (**Source**, by name); their semantics were
   not examined.
 
@@ -313,7 +343,7 @@ Investigated as the way to keep analysis alive beyond one MCP session. Apart
 from the source and docs, REA's real `GhidraCheckpoint` class from the published
 package was driven from separate processes with 1 MiB fake packed programs;
 Ghidra itself was not available, so nothing below involved a real Ghidra
-(**Ran**, module only).
+(**Ran**, module only). Section 11.6 repeats the main behaviours with a real Ghidra.
 
 **What it is.** An opt-in cache of a binary's Ghidra analysis.
 
@@ -453,33 +483,49 @@ kept as the record of why they were made.
 
 ### 4.2 Still UNVERIFIED
 
+This is the original list, annotated as items were closed; the numbers are cited elsewhere, so it is kept.
+Section 13 is the current state.
+
 Each item names the task that should close it.
 
 1. That the SHA-256 recorded in section 8 equals the one published in Ghidra's
-   release notes for 12.1.4. It was computed from a single download, and the
-   published value could not be read from the build environment. The URL and the
-   JDK range (21 or newer, no maximum) are confirmed (task 4.1; **maintainer
-   check**).
+   release notes for 12.1.4. **Resolved 2026-11-14**: it does (section 8.2; **Ran**).
 2. That the native decompiler in the official Linux x86_64 archive runs under uid
    99 in the image. The archive ships it (section 8; **Ran**); running it is
-   task 4.6.
+   task 4.6. **Resolved 2026-11-14**: it ran as uid 99 and produced correct
+   pseudocode (sections 11.3, 11.5).
 3. That the Temurin 21.0.13+9 JDK, which bookworm needs because it packages no
    JDK 21, runs on the image's Debian userland with REA and Ghidra. It was
    verified by hash and contents but not executed (section 9.3; tasks 4.3, 4.6).
    Also that `dumpcap` carries no file capabilities and `tshark -r` works under
-   `--cap-drop=ALL` (section 9.4; task 4.6).
+   `--cap-drop=ALL` (section 9.4; task 4.6). **Partly resolved 2026-11-14**: the JDK
+   runs in the image (`java` and `javac` report 21.0.13), `dumpcap` has no file
+   capabilities, and `tshark -r` works as uid 99 under `--cap-drop=ALL` (section 11.1).
+   Ghidra and REA also run on that JDK (sections 11.3, 11.5): **resolved**.
 4. REA's Ghidra-backed analysis on Node 24 (task 4.6). Its stdio server was run on
    Node 24.22.3 in CI (section 2.1). The base tag resolves to Node 24.22.3, read
    from a tag name rather than by running `node` in the image (section 9.2).
+   **Partly resolved 2026-11-14**: `node --version` in the image reports v24.22.3
+   (section 11.1), and REA's Ghidra-backed analysis ran on it for all 22 samples
+   (section 11.5): **resolved**.
 5. That the Ghidra JVM reports the expected maximum heap when
-   `GHIDRA_HEADLESS_MAXMEM` is set (4.4).
+   `GHIDRA_HEADLESS_MAXMEM` is set (4.4). **Resolved 2026-11-14**: it does, for four
+   settings (section 11.3; **Ran**).
 6. REA and Ghidra with a read-only `/samples`, a read-only root filesystem and a
-   non-root uid, including the temp-directory behaviour in 2.6 (4.6).
+   non-root uid, including the temp-directory behaviour in 2.6 (4.6). **Resolved
+   2026-11-14**: all work, with `/tmp` and `/work` the only writable places (section 11.5).
 7. What a tool call returns when its analysis engine is missing (4.6, 8.3).
+   **Resolved 2026-11-14** for Rizin: a normal result with `isError` set and a
+   structured `capability_unavailable` error that names the missing executable and
+   a remedy. JADX was not exercised on an APK (section 11.5).
 8. REA's stdio behaviour when stdin closes or `SIGTERM` arrives **while a request
    is in flight**. Only the idle case was observed (exit `0` on EOF). In HTTP mode,
-   `SIGTERM` exited `143` (3.13, 3.14).
+   `SIGTERM` exited `143` (3.13, 3.14). **Resolved 2026-11-14**: with a Ghidra
+   analysis in flight, a closed stdin made REA cancel the call, stop Ghidra and
+   exit `0` within about 0.6 s, and `docker stop` ended the container with exit
+   `0` in 0.84 s (section 11.5).
 9. Which REA tools write to which paths, and whether any are confined to a root (8.3).
+   Still open; one tool was checked: `decompile_all` wrote into `/work` (section 11.5).
 10. That the SDK's streamable HTTP transport permits SSE comment frames and
     forced-SSE responses (3.6).
 11. Whether the Community Apps scanner finds a template at `unraid/rea-mcp.xml`
@@ -491,22 +537,33 @@ Each item names the task that should close it.
     exact Cloudflare tunnel idle timeout (7.3, 8.3).
 13. Restoring a checkpoint with a real Ghidra: that it is fast, and that names,
     comments and types survive. Upstream documents a verification script
-    (`verify:ghidra:checkpoints`); it was not run (4.6, 8.3).
+    (`verify:ghidra:checkpoints`); it was not run (4.6, 8.3). **Resolved 2026-11-14**
+    for the samples: restore took 8.8 s against 43.5 s for the first analysis of the
+    largest one, and names and comments survived (section 11.6). The upstream script
+    was still not run.
 14. How long REA takes to publish a checkpoint on close for a large Program,
-    compared with the termination grace period (4.6).
+    compared with the termination grace period (4.6). **Resolved 2026-11-14** for the
+    largest sample (a 3.8 MB blob): 1.1 s on `close_binary`, and REA exited 0.96 s
+    after its stdin closed. A truly large Program was not available (section 11.6).
 15. That, with checkpointing on, a non-stock target fails to open with Ghidra
     instead of falling back to an ephemeral session (**Source** only; 4.6).
+    **Resolved 2026-11-14**: it fails, with the reason in the error (section 11.6).
 16. That a conversation reconnecting on the same binary is blocked by the lease of
     its own idle child until that child is reaped or closed. An inference from the
-    lease behaviour and the idle reaping (3.13, 8.3).
+    lease behaviour and the idle reaping (3.13, 8.3). **Resolved 2026-11-14**: a second
+    live session on the same bytes failed at once until the first called `close_binary`
+    (section 11.6). Whether a real client reconnects that way is still item 18.
 17. Whether unRAID's "New Permissions" tool, or its FUSE-backed user shares, leave
-    the checkpoint directories at mode `700` owned by uid 99 (5.1, 8.3).
+    the checkpoint directories at mode `700` owned by uid 99 (5.1, 8.3). **Partly
+    resolved 2026-11-14**: on `/mnt/user/appdata` (shfs, FUSE) REA created them at `700`
+    owned by 99:100 and everything worked (section 11.6). The "New Permissions" tool was
+    not run, by instruction, so whether it resets them stays **UNVERIFIED**.
 18. Whether Claude Code and the claude.ai connector send `DELETE /mcp` or call
     `close_binary` when a conversation ends, and whether each conversation gets its
     own MCP session (8.3).
 19. Whether REA's Ghidra bridge endpoint is a Unix socket whose path length (the
     kernel limit is about 108 bytes) rules out placing `TMPDIR` under a long
-    per-session directory name (4.6).
+    per-session directory name (4.6). Not examined: `TMPDIR` stayed unset (section 5.1).
 
 ### 4.3 Open questions
 
@@ -534,7 +591,8 @@ The seven in the change's `design.md` stand. The discovery adds:
    no JDK 21, so the JDK comes from a hash-verified Temurin tarball (section 9.3).
    Debian 13 (trixie) packages JDK 21 (section 9.5), which would let the image take
    the JDK from apt with Debian's security updates, but it changes the
-   `container-image` spec. Which does the maintainer want?
+   `container-image` spec. **Decided 2026-11-14 (section 5.5): keep bookworm and the
+   tarball.**
 
 ## 5. Decisions taken since discovery
 
@@ -589,6 +647,27 @@ docs; not run with Ghidra). Wait longer than D6's
 must still fit inside the container's stop timeout, so the longer grace needs a
 matching stop timeout in the template (open question 4). A killed child never
 corrupts a checkpoint, but loses edits made since the last save (2.8).
+
+### 5.5 Decisions of 2026-11-14
+
+Answered by the maintainer when the image work began. They close open questions 1, 5, 6
+and 7 below and the change's `design.md` open questions 1, 5, 7 and 11.
+
+- **JDK source: a Temurin tarball on bookworm.** The image keeps its `node:24-bookworm-slim`
+  base and takes the JDK from the hash-verified Temurin 21.0.13+9 archive of section 9.3,
+  fetched in its own build stage. Debian 13 and copying from an `eclipse-temurin` image were
+  not chosen. The one spec edit this needs is in the `secret-hygiene` capability: the
+  scenario "Build fetches only pinned tooling" now lists the JDK archive. Nothing updates the
+  JDK automatically; a security update means bumping the version, URL and hash by hand.
+- **Community Apps: not submitting.** The template is installed from a private template URL
+  (or by copying the XML to the server), so no `ca_profile.xml` is added. This closes task
+  5.5. The Community Apps items in section 10.5 (template path, `ExtraParams`, the bare
+  `Tools:` category, icon size, the two-factor policy) stay **UNVERIFIED** and unneeded; if
+  the decision changes, add `ca_profile.xml` (section 10.4) and run Validate and Scan.
+- **GHCR package: public.** A template can then pull without registry credentials. Nothing is
+  created or published yet; the package and its first publication still need the
+  maintainer's go-ahead at that time (task 6.4).
+- **Licence: GPL-3.0-only stays**, as in `package.json` and `LICENSE`.
 
 ## 6. Gateway implementation choice (task 2.4)
 
@@ -746,15 +825,15 @@ unzip -Z1 ghidra.zip | grep 'Decompiler/os/linux_x86_64/decompile$'
 
 ### 8.2 What is still UNVERIFIED
 
-- **The SHA-256 against Ghidra's published value.** The hash above was computed
-  from one HTTPS download. Ghidra's release notes list a SHA-256 for the archive,
-  but the release page, the expanded asset list and GitHub's API digest could not
-  be read from the environment used here (access to that repository is limited to
-  anonymous git reads), and no independent mirror was reachable. The matching
-  `application.revision.ghidra` shows the archive is consistent with the tag; it
-  does not show it is the archive Ghidra published. **Maintainer check:** compare
-  `GHIDRA_SHA256` with the SHA-256 in the release notes for `Ghidra_12.1.4_build`
-  before the first image is published, and correct it here if they differ.
+- **The SHA-256 against Ghidra's published value: resolved on 2026-11-14.** When it
+  was pinned, the hash was computed from one HTTPS download and the release page
+  could not be read. From the maintainer's host the GitHub API answers
+  (`GET /repos/NationalSecurityAgency/ghidra/releases/tags/Ghidra_12.1.4_build`,
+  **Ran**), and three values were compared programmatically: the SHA-256 line in that
+  release's notes, the `digest` of the asset `ghidra_12.1.4_PUBLIC_20260921.zip` (569,649,598
+  bytes, the size recorded above), and `GHIDRA_SHA256` in the table above. **All three are
+  equal.** The image build also downloads the archive afresh and checks it against the pin
+  (section 11.1). The maintainer may still wish to compare the release notes by eye.
 - **That the decompiler and headless analyzer run** under uid 99 with the chosen
   JDK in the image (task 4.6).
 - **Ghidra 12.2 and JDK 25** (section 2.3) were not examined; the pin does not
@@ -796,7 +875,9 @@ cannot serve.
 So the tag is Node **24.22.3**, which is at or above REA's floor of 24.22.1
 (section 2.1). The version comes from the tag name that shares the digest, not
 from running `node --version` in the image; the image build and smoke test
-(tasks 4.3, 4.7) are the first runs of it. The tag moves, so task 4.3 should
+(tasks 4.3, 4.7) are the first runs of it. On 2026-11-14 `docker buildx imagetools
+inspect node:24-bookworm-slim` still gave the digest above, and `node --version` in the
+built image reported v24.22.3 (section 11.1). The tag moves, so task 4.3 should
 reference the base by this digest as well as the tag for reproducible builds
 (`design.md`, Risks: "consider digest pinning"). A pinned digest goes stale and
 needs a Dependabot `docker` entry, which `.github/dependabot.yml` does not have yet.
@@ -829,10 +910,11 @@ The two other options in D9 were not examined: the Adoptium apt repository (its
 host was not reachable) and copying from an official `eclipse-temurin` image
 (whether a Debian-based tag exists was not checked).
 
-The archive was **not executed** here, so `java -version`, `javac -version` and
-compatibility with bookworm's glibc are **UNVERIFIED** until tasks 4.3 and 4.6 run
-it in the image. The image must keep the upstream licence notices (D12); the
-archive's licence files were not examined.
+The archive was **not executed** when it was pinned. Task 4.3 then ran it in the image
+(section 11.1): `java -version` reports `Temurin-21.0.13+9` and `javac -version` reports
+21.0.13, so it runs on bookworm's glibc. Whether Ghidra and REA run on it is task 4.6. The
+image must keep the upstream licence notices (D12): the archive ships `NOTICE` and a `legal/`
+directory, and the image carries both (section 11.1).
 
 ### 9.4 `tshark` and `libcap2-bin` (corrects design D9)
 
@@ -840,10 +922,9 @@ archive's licence files were not examined.
 `wireshark-common`, on which `tshark` depends, has an unconditional
 `Depends: libcap2-bin` (**Ran**: full `Depends` field), so it is installed with
 `tshark`. `wireshark-common` only recommends `wireshark | tshark`, and `tshark`
-itself does not depend on `libcap2-bin`. Whether `dumpcap` is given file
-capabilities in the image was not examined: **UNVERIFIED**. Task 4.6 must check
-that `getcap /usr/bin/dumpcap` prints nothing and that `tshark -r <file>` works
-under `--cap-drop=ALL`.
+itself does not depend on `libcap2-bin`. In the built image `/usr/bin/dumpcap` is
+`-rwxr-xr-x root root`, `getcap /usr/bin/dumpcap` prints nothing, and `tshark -r` works as
+uid 99 under `--cap-drop=ALL` (section 11.1; **Ran** 2026-11-14).
 
 ### 9.5 Alternative: a Debian 13 base
 
@@ -867,12 +948,8 @@ Ghidra and `tshark` 4.4 behave on it is **UNVERIFIED**, and it changes the
 
 ### 9.6 What is still UNVERIFIED
 
-- That the Temurin JDK runs in the image and satisfies REA's and Ghidra's checks
-  (tasks 4.3, 4.6).
-- That `dumpcap` has no file capabilities and `tshark -r` works with all
-  capabilities dropped (task 4.6).
-- The Node version actually reported inside the image (tasks 4.3, 4.7).
-- REA's Ghidra-backed analysis on Node 24 (section 2.1; task 4.6).
+- Nothing. The JDK, Ghidra and REA run together on Node 24.22.3 in the image, and
+  `dumpcap` has no file capabilities (sections 11.1, 11.3 and 11.5).
 
 ## 10. unRAID and Community Apps rules (task 5.1)
 
@@ -963,7 +1040,11 @@ not read: its address was not found in the pages fetched. What it would cover
   for unlimited PIDs (not recommended)". Threads count against a PID limit, so
   several Ghidra JVMs and their decompiler processes, up to `MAX_SESSIONS` of them,
   could approach it. That is an inference and is **UNVERIFIED**; it belongs in the
-  memory and sizing guidance (tasks 7.2, 7.4) and in the end-to-end check (8.3).
+  memory and sizing guidance (tasks 7.2, 7.4) and in the end-to-end check (8.3). One
+  measurement exists (section 11.5): two concurrent Ghidra sessions on a 770 KB binary
+  took the container to 197 PIDs, from 10 idle, so the default `MAX_SESSIONS` of 4 is
+  an extrapolated 380 or so on that 64-CPU host, well under 2048; the count depends on
+  the CPU count.
 
 ### 10.4 Community Apps submission and moderation
 
@@ -1002,5 +1083,448 @@ not read: its address was not found in the pages fetched. What it would cover
   the starter icon's view box, which is a choice and not a guideline.
 - Whether a `--stop-timeout` in `ExtraParams` is honoured, and whether array stop
   and shutdown use the host's Docker Stop Timeout.
-- Whether the PID limit constrains several Ghidra sessions.
+- Whether the PID limit constrains several Ghidra sessions. Measured data are in section 11.5, and section
+  10.7 shows unRAID applies `--pids-limit 2048` by default; four concurrent sessions were not run.
 - Whether the two-factor requirement in the policy thread still applies.
+
+### 10.6 The icon (task 5.2)
+
+`unraid/icon.png` is a 256 by 256, 8-bit RGBA PNG of 6,504 bytes: a magnifying lens over a grid of "byte
+cells" on a navy rounded square with transparent corners. The size is the choice recorded in 10.2, not a
+documented guideline. Checked on 2026-11-14 (**Ran**): the PNG signature and every chunk CRC are valid; the
+file holds only `IHDR`, `IDAT` and `IEND`, so it is one frame with no APNG animation chunks (`acTL`, `fcTL`,
+`fdAT`); the decompressed pixel data has exactly the length the header implies; and the corners are
+transparent while the centre is opaque. It is original: `scripts/make_icon.py` draws it from geometric shapes
+(signed-distance functions, standard library only) and reproduces it byte for byte, so it contains no
+third-party artwork. That it resembles no one else's mark rests on that construction and a look at the
+picture; no trademark search was made. The template check of task 5.4 repeats the PNG checks in CI.
+
+### 10.7 The template (task 5.3)
+
+`unraid/rea-mcp.xml` follows the `unraid-template` spec: root `<Container version="2">`; `Name`, `Repository`
+(`ghcr.io/eguthriewastaken/rea-mcp:latest`), `Registry`, `Shell`, `Support`, `Project`, `Overview`, `Category`
+(`Tools:`), `TemplateURL` and `Icon` set; `Network` `bridge`; `Privileged` `false`; `ExtraParams`
+`--security-opt=no-new-privileges:true --cap-drop=ALL`; no `WebUI`. It has 12 `<Config>` entries, each with
+all nine attributes: the port, the masked empty required `REA_MCP_API_KEY`, `/samples` with `Mode="ro"` and
+no default, `/work` defaulting to `/mnt/user/appdata/rea-mcp`, and the eight advanced variables with
+`Display="advanced"`, whose defaults equal the gateway's (`DEFAULT_ENV` in `src/config.ts`; empty where the
+gateway has none). The checkpoint variable is empty, names `/work/checkpoints`, says non-stock targets fail to
+open, and tells the operator to raise the host's Docker Stop Timeout to at least 40 s (section 10.3).
+`xmllint --noout` accepts it, and it holds no key and no long hex string.
+
+**unRAID's own parser, run on this host** (**Ran**, 2026-11-14, unRAID 7.3.4): `xmlToCommand()` from the
+installed `dynamix.docker.manager/include/Helpers.php` was called read-only from a PHP stub (fake time zone, host
+name and network table; `$create_paths` false, so nothing was created). It builds this command from the template:
+
+| From the template | In dockerMan's `docker create` |
+|---|---|
+| `Name`, `Repository`, `Network` | `--name='rea-mcp'`, `--net='bridge'`, image `'ghcr.io/eguthriewastaken/rea-mcp:latest'` |
+| `ExtraParams` | `--security-opt=no-new-privileges:true --cap-drop=ALL`, appended unchanged |
+| Port 8080 `tcp` | `-p '8080:8080/tcp'` |
+| `/work` | `-v '/mnt/user/appdata/rea-mcp':'/work':'rw'` |
+| `/samples` once the user gives a path | `-v '<path>':'/samples':'ro'`; with no path it is left out, as the user must choose one |
+| The eight advanced variables | `-e` for each, an empty default being passed as an empty string |
+| `Icon` | `-l net.unraid.docker.icon=<url>` |
+| (not in the template) | `--pids-limit 2048`, which dockerMan adds itself from the host's `DOCKER_PID_LIMIT` (empty: 2048) |
+
+So an unRAID-installed container is limited to 2048 PIDs by default, which section 11.5's measurement (about
+94 PIDs per live Ghidra session on a 64-CPU host) leaves room for at the default of 4 sessions. The image was also
+run with exactly that environment, empty strings included (`GHIDRA_MAX_HEAP=`, `ALLOWED_HOSTS=`,
+`REA_GHIDRA_CHECKPOINT_DIR=` and so on): it became healthy, analysed a sample, and Ghidra ran with REA's default
+`-Xmx2G`, so a blank variable behaves as unset.
+
+Not checked: how the edit form renders the template (that `Mask` hides the key, `Display="advanced"` collapses
+the eight variables, and `Required` blocks Apply). That is browser-side code in `CreateDocker.php`, and nothing
+was rendered here.
+
+### 10.8 The template check (task 5.4)
+
+`scripts/check_template.py` (Python 3 standard library only) checks `unraid/rea-mcp.xml` against the
+`unraid-template` spec and reports every violation: well-formed XML and the `Container` root; the ten metadata
+elements, with the spec's fixed values (lowercase repository, `Tools:`, project, support and raw links,
+`bridge`, not privileged, both hardening flags, no `WebUI`); all seven attributes on every `<Config>`; the
+required entries (port, masked empty required key, `ro` samples with no default, `/work` default); the eight
+advanced variables as advanced entries whose defaults equal `DEFAULT_ENV` in `src/config.ts`, which it reads
+from the source so the two cannot drift; the checkpoint variable off by default and its description; no
+key-like string, private key, host other than public GitHub and GHCR, or host path other than the appdata
+default; and that the icon is a valid, 256 by 256, single-frame PNG.
+
+`--self-test` copies the template, icon and `config.ts` to a scratch directory, makes one deliberate
+violation, and requires the checker to reject it, 31 times (**Ran**, 2026-11-14): malformed XML, a wrong
+version, a missing or empty element, an uppercase repository, a wrong category or link, `Privileged` true, a
+host network, a missing `--cap-drop=ALL`, a `WebUI`, an API key with a default (a random key-shaped string made
+at run time, so no literal is committed), an unmasked or optional key, a writable or defaulted `/samples`, a
+changed `/work` default, a `<Config>` without `Mask`, a missing or non-advanced variable, a default changed on
+either the template side or the gateway side, checkpointing on by default, a checkpoint description without
+`/work/checkpoints` or without the warning, a link to another host, a user-specific host path, and an icon that
+is truncated, has a bad CRC, is animated, or is missing. It also requires the unmodified template to pass and
+the command to exit 1, naming the problem, on a broken copy. All 31 were rejected and the real template passes.
+
+## 11. Image build and verification (tasks 4.3 to 4.7)
+
+Gathered on 2026-11-14 on the maintainer's unRAID host (Docker Engine 29.8.2, BuildKit
+0.33.1, cgroup v2, amd64), with Docker's built-in `default` builder and the image tagged
+`rea-mcp-dev:test`. Everything is **Ran** unless it says otherwise. The sample set is the
+maintainer's `rea-test-samples.zip`, kept outside the repository; its
+`sha256sum -c SHA256SUMS` reported all 50 files `OK`, and none is executable.
+
+### 11.1 The Dockerfile (task 4.3)
+
+`docker/Dockerfile` builds five stages on one base, `node:24-bookworm-slim` pinned by
+tag and digest (section 9.2): `base` (which refuses any platform but amd64), `ghidra`, `jdk`,
+`build` and `runtime`. Only `runtime` ships.
+
+```bash
+docker buildx build --platform linux/amd64 -f docker/Dockerfile -t <image> .
+```
+
+| Check | Result |
+|---|---|
+| Build | Succeeds; about 1 min 20 s with warm base layers, 1 min 34 s the first time; the image is 1.92 GB (`docker image inspect` `.Size` 1,915,751,710) |
+| Pins equal this document | Programmatic comparison of `GHIDRA_URL`, `GHIDRA_SHA256`, `GHIDRA_VERSION`, `JDK_URL`, `JDK_SHA256` and the base digest in the Dockerfile with sections 8 and 9: all equal |
+| `GHIDRA_SHA256` altered (first hex digit changed, one character) | `sha256sum --check` prints `/tmp/ghidra.zip: FAILED`, the build exits `1`, and no image with that tag exists |
+| `JDK_SHA256` altered the same way | `/tmp/jdk.tar.gz: FAILED`, exit `1`, no image |
+| Ghidra layout | `/opt/ghidra/support/analyzeHeadless` and `.../Decompiler/os/linux_x86_64/decompile` are present and executable; `application.version=12.1.4`, `application.java.min=21`, `application.java.max=` empty |
+| Runtime identity | `uid=99(rea-mcp) gid=100(users)`; `getent passwd 99` gives `rea-mcp:x:99:100::/work/home:/usr/sbin/nologin` |
+| Node | `v24.22.3` (at or above REA's floor of 24.22.1) |
+| JDK | `OpenJDK Runtime Environment Temurin-21.0.13+9 (build 21.0.13+9-LTS)`; `javac 21.0.13` |
+| Other tools | `ps` procps-ng 4.0.2; `tshark` 4.0.17 (`4.0.17-0+deb12u3`); `objdump` 2.40; `tini`; each resolves on `PATH` |
+| Build-only tools absent | `curl` and `unzip` are not on `PATH`, and `dpkg-query` knows neither |
+| Environment | `HOME=/work/home`, `JAVA_HOME=/opt/jdk`, `GHIDRA_INSTALL_DIR=/opt/ghidra`, `PORT=8080`; **`TMPDIR` is unset**; `/tmp` is `drwxrwxrwt`, writable by uid 99 |
+| Volumes and directories | `/samples` and `/work` declared as volumes, `WORKDIR /work`; `/work/home` and `/work/sessions` exist, mode `700`, owned `rea-mcp:users`; `/samples` refuses a write under `:ro` ("Read-only file system") |
+| `dumpcap` | `-rwxr-xr-x root root`; `getcap /usr/bin/dumpcap` prints nothing |
+| `rea-agents` | Installed 6.9.0, equal to the lockfile's; no `~/.claude.json`, `~/.agents` or `~/.claude` under `HOME`, so no `setup` output |
+| No key in the image | `REA_MCP_API_KEY` occurs 0 times in `docker image inspect` and `docker history --no-trunc` |
+| Licence notices | `/opt/ghidra/LICENSE`, `/opt/ghidra/licenses`, `/opt/ghidra/GPL/licenses`, `/opt/jdk/NOTICE`, `/opt/jdk/legal`, `/app/LICENSE` (Ghidra's archive has no `NOTICE` file) |
+
+The first build raised BuildKit's `FromPlatformFlagConstDisallowed` lint on a constant
+`--platform` in `FROM`. It was replaced by a `dpkg --print-architecture` assertion in `base`.
+
+**The capture, opened in `tshark` for the first time** (as uid 99, `--cap-drop=ALL`,
+`--security-opt=no-new-privileges:true`, `/samples` read-only; empty stderr, nothing written to
+`HOME`). It matches the samples README exactly:
+
+| README says | `tshark -r` shows |
+|---|---|
+| 34 packets: 6 UDP, 26 TCP, 2 ICMP | 34 frames; `udp` 6, `tcp` 26, `icmp` 2 |
+| DNS `www.example.test` and `api.example.test` answered; `missing.example.test` NXDOMAIN | Frames 1 to 6; the `dns.flags.rcode == 3` filter matches frame 6, "No such name" |
+| `GET /index.html`, `POST /api/v1/items` (JSON) | Frames 10 and 20; the POST is dissected as `HTTP/JSON` |
+| One ClientHello with SNI `api.example.test` | `203.0.113.30  api.example.test` (the `tls.handshake.type == 1` filter) |
+| One ping, id `0x0042` | Frames 33 and 34, `id=0x0042, seq=1/256`, ttl 64 and 56 |
+
+### 11.2 The entrypoint check (task 4.5)
+
+`docker/entrypoint.sh` is the image's entrypoint, behind `tini`. It probes `/work` and `/tmp`
+by creating a file in each (which also catches read-only mounts and ACLs that `test -w`
+can miss), creates `/work/home` and `/work/sessions` at mode `700`, probes those two as well
+(they may already exist from a run as another user), and then `exec`s the command, so Node is
+tini's direct child. It reports a problem as one JSON object on stdout in the gateway's log
+shape (`time`, `level`, `message`, `path`, `reason`) and exits `1`. Every row below ran under
+`--cap-drop=ALL --security-opt=no-new-privileges:true` as uid 99.
+
+| Scenario | Result |
+|---|---|
+| `/work` is a bind mount owned by root, mode 755 | Error naming `/work` and the remedy (make the host directory writable by uid 99 and gid 100, "on unRAID, nobody:users"); exit `1`; nothing is left in the mount |
+| `/work` is writable but `/work/home` exists, owned by root, mode 700 | Error naming `/work/home`; exit `1` |
+| `--read-only` root filesystem with no `/tmp` mount | Error naming `/tmp`; exit `1` |
+| `/work` is a bind mount owned by 99:100, with a throwaway key | `home` and `sessions` appear in it, mode `700`, uid 99, gid 100; the gateway logs `listening`; the container is `healthy` 2 s after start with `--health-interval=2s`; `GET /healthz` gives `200` and `{"status":"ok"}`; `docker stop` exits `0` in 0.18 s |
+| No key, and a 31-character key | The gateway's refusal reaches the log through the entrypoint (`cannot start without a usable API key`, naming `REA_MCP_API_KEY`); exit `1`; the throwaway key does not occur in the output |
+
+The gateway also checks `/work/sessions` itself (`src/main.ts`), so the same mistake would be
+caught there if the entrypoint were bypassed; the entrypoint reports it first, and for `/tmp`
+as well, which the gateway does not check.
+
+### 11.3 The heap mapping (task 4.4)
+
+A real Ghidra was driven through the gateway: an MCP client opened
+`/samples/binaries/ghidra-class/switch` (read-only mount), called `binary_overview` and
+`list_procedures`, and then, with the session still open, `docker exec` read the Ghidra JVM's
+command line from `/proc/<pid>/cmdline` and its effective limits from `jcmd <pid> VM.flags`.
+The container ran as uid 99 with `--cap-drop=ALL --security-opt=no-new-privileges:true`. Each row
+is a separate container.
+
+| `GHIDRA_MAX_HEAP` | `GHIDRA_HEADLESS_MAXMEM` in the REA child | JVM command line | `jcmd` `MaxHeapSize` |
+|---|---|---|---|
+| unset | absent | `-Xmx2G` (REA's own default) | 2,147,483,648 (2048 MiB) |
+| `1536M` | `1536M` | `-Xmx1536M` | 1,610,612,736 (1536 MiB) |
+| `3g` | `3g` | `-Xmx3g` | 3,221,225,472 (3072 MiB) |
+| `768m` | `768m` | `-Xmx768m` | 805,306,368 (768 MiB) |
+
+Each value equals the heap requested, so the mapping of design D10 works as written. Also seen:
+
+- The JVM environment holds `JAVA_TOOL_OPTIONS=` set to nothing, which is REA blanking it
+  (section 2.4), so that variable could not have carried the heap setting.
+- The JVM is a child of the REA process, runs as uid 99, gid 100, and `jcmd VM.version` reports
+  `OpenJDK 64-Bit Server VM version 21.0.13+9-LTS`, the Temurin JDK of section 9.3. REA adds
+  `-Xshare:off -XX:ParallelGCThreads=2 -XX:CICompilerCount=2`.
+- Ghidra's per-session home and temporary directory are under `/tmp`:
+  `-Duser.home=/tmp/rea-ghidra-<random>/home` and `-Djava.io.tmpdir=/tmp/rea-ghidra-<random>/tmp`,
+  as section 2.6 said.
+- `open_binary` does not start Ghidra (it answered in 0.1 to 2 s); the first Ghidra-backed call
+  did, and `binary_overview` took about 11 s for this 16 KB binary.
+- The REA child's working directory was `/work/sessions/<session-id>`, and its environment held only
+  `GHIDRA_HEADLESS_MAXMEM`, `GHIDRA_INSTALL_DIR`, `HOME`, `JAVA_HOME` and `PATH` of the variables
+  checked (design D8, D13).
+
+### 11.4 The hardened run (task 4.6)
+
+The container was started as the template will start it: `--cap-drop=ALL
+--security-opt=no-new-privileges:true`, `/samples` mounted `:ro`, `/work` a bind mount owned by
+99:100, no `--privileged`, bridge networking, the image's own `HEALTHCHECK`. A memory limit of 6 GiB
+and a PID limit of 1024 were added as test safeguards.
+
+| Check | Result |
+|---|---|
+| Identity | `.Config.User` is `99:100`; `id` gives `uid=99(rea-mcp) gid=100(users)` |
+| Privileges | The gateway process has empty permitted, effective and bounding capability sets (`CapPrm`, `CapEff`, `CapBnd` all zero) and `NoNewPrivs: 1`; `Privileged=false` |
+| Tools resolve as uid 99 | `java` 21.0.13, `javac` 21.0.13, `ps` procps-ng 4.0.2, `tshark` 4.0.17, `objdump` 2.40 |
+| `/samples` and `/work` | A write to `/samples` fails with "Read-only file system"; a write to `/work` works |
+| Headless Ghidra's own launcher | `support/analyzeHeadless /tmp/ghproj rea-dev -import /samples/binaries/ghidra-class/switch -deleteProject` ran as uid 99 under the Temurin JDK in 9.0 s: "Analysis succeeded", "Save succeeded", "Import succeeded"; no Java version error. It wrote Ghidra's user settings to `/work/home/.config/ghidra/ghidra_12.1.4_PUBLIC` |
+| Health | `healthy` at the first poll, more than 10 s after start, with the image's unmodified `HEALTHCHECK` (30 s interval, 15 s start period) |
+| `/healthz` | `200` with `{"status":"ok"}` and no key; no `Server` or `X-Powered-By` header |
+| Authenticated `initialize` | Right key: `200` with an `Mcp-Session-Id`, REA's `initialize` result. Wrong key and no key: `401`, empty body, no session; the log line is `authentication failed` with the source address only |
+| `docker stop` | Exit `0` in 0.2 s when idle; 0.84 s with a Ghidra analysis in flight (section 11.5) |
+
+### 11.5 Real Ghidra-backed paths, shutdown and sizing (task 4.6)
+
+**Analysis through REA.** All 22 sample binaries were opened and analysed through the gateway in one
+session, in the hardened container with `/samples` read-only: 22 succeeded, none failed. Each took 9 to
+13 s (JVM start dominates; `open_binary` itself does not start Ghidra), except the 770 KB static
+`stack-buffer-overflow-amd64`: 41 s and 1078 function rows. Function rows ranged from 1
+(`exotic_instructions-amd64`) and 2 (`dynamic_jump-amd64`) to 86 for the C++ `animals`, and 1078 for the
+static binary; the four shared objects and the stripped `sharedReturn` also worked. For `switch`, `analyze_function` returned
+pseudocode for `main` that matches its source (a jump through a ten-entry table, with the usage
+message), so Ghidra's native decompiler, `demangler_gnu_v2_41` and the JVM all ran as uid 99.
+
+**Other REA tools that reach the image's engines.**
+
+| Tool | Result |
+|---|---|
+| `inspect_with_objdump` | Real GNU objdump output: `file format elf64-x86-64`, `<main>:`, the `strtoul` call |
+| `inspect_pcap_capture` (tshark) | 34 packets, with `www.example.test`, `api.example.test`, `missing.example.test`, `/index.html`, `/api/v1/items`; TShark 4.0.17; `inspect_packet_capture` and `inspect_packet_fields` also answered |
+| `decompile_all` | Wrote 20 files under `/work/out-decompile` from the read-only `/samples`: directories `700`, files `600`, owner 99:100 |
+| `execute_rizin_command` (no Rizin in the image) | A normal result with `isError`, `code: capability_unavailable`, "Could not launch the selected rizin executable "rizin" (ENOENT)" and a remedy ("make that command available on PATH") |
+| `capture_process_scenario` | **Runs an arbitrary command inside the container**, as uid 99: `id` printed `uid=99(rea-mcp) gid=100(users)`, a `sh -c` wrote to `/tmp` and was refused on `/samples` ("Read-only file system"), and a Node one-liner made an outbound HTTPS request to a public host that returned 200. REA describes the tool as "not a sandbox". The gateway relays tools unfiltered (design D2), so a key holder has command execution in the container, write access to `/work` and `/tmp`, and the network; `docs/SECURITY.md` says so |
+| `search_android_classes` (no JADX) | `capability_unavailable`, "Target ... is elf; provide one standalone APK". It was given an ELF, so it does not show what an APK does without JADX |
+
+**A read-only root filesystem works.** With `--read-only --tmpfs /tmp` (Docker's default options,
+`rw,noexec,nosuid,nodev`, 64 MB) the same analysis gave the same pseudocode and nothing was logged. The
+writable places Ghidra needs are `/tmp` (its per-session home and temporary directory, `/tmp/rea-ghidra-<random>`,
+which REA removes after `close_binary` and after a bare `DELETE`; only the JVM's small `hsperfdata_<user>`
+stays) and `/work`. `noexec` on `/tmp` is harmless. The size matters: one live session
+on the 770 KB binary used about 27.5 MiB of `/tmp`, so two used 55 of the 64 MB. A read-only deployment
+should give `/tmp` a larger tmpfs.
+
+**Sizing, measured** with two concurrent sessions on the 770 KB binary and Ghidra's default 2G heap
+(each took about 45 s): the container's cgroup `pids.current` peaked at 197 (10 with the gateway idle),
+about 94 per session, and its memory at about 2.5 GiB. The PID count follows the host's CPU count (64 here).
+Four concurrent sessions were not run.
+
+**Shutdown while a request is in flight** (a `binary_overview` of the 770 KB binary, 6 s in):
+
+| Ending | Result |
+|---|---|
+| Client `DELETE /mcp` | `200` in 5 ms. REA cancelled the call (`status: "error"` in its log), stopped Ghidra and exited `0` 0.64 s after the gateway closed its stdin; no `SIGTERM` or `SIGKILL`; no Java or decompiler process left |
+| `docker stop` (default 10 s) | 0.84 s; container exit code `0`; REA exited `0` about 0.6 s after the `SIGTERM` reached the gateway |
+| The request that was in flight | In both cases it ended as HTTP `200` with an empty body: no JSON-RPC result and no JSON-RPC error. The spec fixes only the child-exit case ("fail its in-flight requests with an error"), so this is recorded as an observation, not a defect |
+
+### 11.6 Checkpoints with a real Ghidra (task 4.6; section 2.8)
+
+With `REA_GHIDRA_CHECKPOINT_DIR=/work/checkpoints`, in the hardened container, on `switch` unless
+noted (all **Ran**):
+
+| Scenario | Result |
+|---|---|
+| First analysis | Saved at once. REA created `/work/checkpoints` itself (mode `700`, owner 99:100), with `<key>/current.json` (`600`) and `program-<uuid>.gzf` (38 KB, `644`) in a `700` key directory. The lease is a socket under `/tmp/rea-ghidra-checkpoint-leases-<uid>/` |
+| `annotate_native_function`, then `close_binary` | The blob was replaced by a new one: saved on normal close |
+| A later session on the same bytes | The renamed function and its comment came back, reported as restored state. First Ghidra call 8.5 s, against 10.9 s for the first analysis: little gain on a 16 KB binary, where JVM start dominates |
+| The same on the 770 KB static binary | First analysis 43.5 s; restore plus first Ghidra call 8.8 s; blob 3.79 MB |
+| A second live session on the same bytes | Fails in about 100 ms: `configuration_invalid`, "REA_GHIDRA_CHECKPOINT_DIR: another REA session owns this checkpoint (run ..., process ...); close that session before retrying." The holder was an idle session. After its `close_binary` (no `DELETE` needed) the second session worked |
+| A non-stock target (`raw-binary`) with checkpointing on | `open_binary` succeeds, then the first analysis call fails with `provider_unavailable`; the rejection reason is "Ghidra checkpoints currently support stock ELF/PE/Mach-O imports on Linux/macOS" (code `version_unresolved`), also shown by `binary_session` with `detail: complete`. It does not fall back. Without checkpointing the same target analysed normally (10 s) |
+| `DELETE` without `close_binary`, after an unsaved edit | The edit was saved by REA's shutdown. On the large sample, REA published a 3.8 MB Program and exited 0.96 s after its stdin closed, against a 30 s grace |
+| `close_binary` publish on the large sample | 1.1 s |
+| `docker stop` (default 10 s) after an unsaved edit | 0.4 s, exit `0`; in a new container on the same `/work` the edit was there |
+| `SIGKILL` of the whole container after an unsaved edit | The checkpoint was intact and restored in a new container; the last good save was present and the unsaved edit was lost |
+| `/work` on `/mnt/user/appdata` (unRAID user share, shfs, FUSE) | Everything above behaved the same; directories stayed `700`, owner 99:100 |
+
+`annotate_native_function` replaces a function's comment, so a later edit overwrites an earlier
+one on the same function.
+
+### 11.7 The smoke-test script (task 4.7)
+
+`scripts/smoke_test.sh <image>` starts the image as the template will (`--cap-drop=ALL`,
+`--security-opt=no-new-privileges:true`, `/samples` read-only, a random host port on `127.0.0.1`) with a
+throwaway key, and asserts that: the container becomes `healthy`; its user is `99:100`; `GET /healthz`
+returns `200` and exactly `{"status":"ok"}` without a key; `initialize` with the key returns `200`, an
+`Mcp-Session-Id` and REA's result; the same request with no key and with a wrong key returns `401` and
+starts no session; `DELETE /mcp` ends the session; the key does not occur in the container's log; and
+`docker stop` exits `0` in under 10 s. It then starts two more containers, with no key and with a
+31-character key, and asserts each exits non-zero, names `REA_MCP_API_KEY`, and does not print the short
+key. It does not run Ghidra (sections 11.3 to 11.6 did). The key lives in the script's environment only:
+`docker` takes it from the environment, `curl` reads the header from stdin (`-H @-`) and `grep` reads it from a
+process substitution, so it is never on a command line, in a file or in the output. Containers are named
+with `REA_MCP_SMOKE_PREFIX` and always removed, with their anonymous volumes.
+
+| Run | Result |
+|---|---|
+| The built image | All checks pass, exit `0`, 4.6 s; no container is left |
+| A variant with `USER root` | Fails with "the container stopped before it became healthy" and the log: the entrypoint reports that `/work` is not writable by uid 0. A root process with all capabilities dropped has no `CAP_DAC_OVERRIDE`, so it cannot write to a directory owned by another uid |
+| A variant that starts as uid 1000 (`/work` made world-writable so it does start) | Healthy, then fails with "the image's user is '1000:100', not 99:100" |
+| An image name that does not exist | `docker run` fails and the script exits `125` |
+
+Two defects of the first draft were found and fixed by these runs: the port lookup ran before the
+container was known to be running, so an early exit gave no message; and `docker logs | grep -q` under
+`pipefail` could report a match as no match, so the key-in-the-log check reads the log into a variable first.
+
+### 11.8 What was not checked
+
+- **APK decompilation.** There is no APK sample and the image has no JADX by design, so only the
+  non-APK error of section 11.5 was seen.
+- **A truly large Program.** The largest sample is 770 KB (a 3.8 MB checkpoint blob). Publish time and
+  restore time for a program of tens of megabytes are unknown, as is whether 30 s is enough for one.
+- **Four concurrent sessions** (the default `MAX_SESSIONS`), memory at an 8G heap, and unRAID's own
+  Docker PID limit setting (the test used `--pids-limit=1024`).
+- **unRAID's "New Permissions" tool**, whether array stop and server shutdown use the Docker Stop
+  Timeout setting, and whether a `--stop-timeout` in `ExtraParams` is honoured (section 10.5).
+- **Clients and the tunnel**: Claude Code, the claude.ai connector, `DELETE /mcp` on exit, and a call
+  longer than the roughly 100 s idle limit (task 8.3 and `docs/CLOUDFLARE.md`).
+- **Which of REA's roughly 250 tools write where.** Only `decompile_all` was checked.
+- **`TMPDIR` under a long per-session path** (item 19 of section 4.2).
+- **The upstream `verify:ghidra:checkpoints` script.**
+
+## 12. CI jobs written ahead of their first run (tasks 6.2 to 6.4)
+
+Written on 2026-11-14 and checked locally first; a workflow is only verified by a pull request run, which the
+maintainer then allowed (pull request 5; results below the table). Task 6.3 is ticked on that run, while 6.2 and 6.4
+stay unticked. What was checked locally, and what remained:
+
+| Piece | Checked here (**Ran**) | Still to do |
+|---|---|---|
+| `template` job in `ci.yml` | `scripts/check_template.py` passes and its self-test rejects all 31 seeded violations (section 10.8) | Run on a pull request; seed one violation on a scratch branch and see the job fail |
+| `image` job in `ci.yml` | The same Docker commands ran on this host: the build (section 11.1), `scripts/check_hash_pins.sh` (an altered Ghidra or JDK hash fails the build on the checksum and leaves no image) and `scripts/smoke_test.sh` (section 11.7) | Done: passed on a runner (below) |
+| `gate` | Parsed with the `yaml` package: every job other than `gate` is in its `needs` | Seeing it fail when a job fails |
+| `.github/workflows/publish.yml` | Parses; has no automatic trigger and a job switched off with `if: false`; empty top-level `permissions`, job-level `contents: read` and `packages: write`; no third-party action. `scripts/image_tags.sh` gives `latest` and `sha-<12>` for `main`, `X.Y.Z` and `sha-<12>` for a `vX.Y.Z` tag, and refuses every other ref and malformed input | Not to be enabled or run until the maintainer approves (task 6.4) |
+
+Design choices: the new jobs use the runner's own `docker` and `python3` and so add no third-party action
+to pin and no binary to hash-verify. The template job does not call `xmllint` (design D11 mentions it): the
+checker parses the XML strictly and its self-test includes a malformed file, so the runner needs no extra
+package. The tag policy in `scripts/image_tags.sh` is a proposal for open question 4 of the change's
+`design.md`. A new GHCR package starts private, so after the first publish the maintainer must make it public
+(decision of section 5.5) in GitHub's package settings.
+
+Also run once on a clean copy of this branch in a Node 24.22.3 container (as root): `npm run lint` and
+`npm run typecheck` clean, and `npm test` gave 358 passed and 1 skipped. The skip is
+`it.skipIf(process.getuid?.() === 0)` in `test/keys.test.ts`, which a root run skips.
+
+### First run on GitHub (pull request 5, run 43664812125)
+
+- **`image` passed on a runner in 2 min 3 s**: the build, `scripts/check_hash_pins.sh` (an altered Ghidra hash and an
+  altered JDK hash each failed the build on the checksum and left no image) and all twelve `scripts/smoke_test.sh`
+  checks. This is the "verify on a branch run" of task 6.3, which is therefore ticked.
+- **`template` failed, and so did `gate`.** The real check passed (`template: ok`) but the self-test crashed with an
+  uncaught `ValueError` on its `WebUI` mutation, which puts unRAID's `[IP]` placeholder in a URL
+  (`http://[IP]:[PORT:8080]/`). Python on the runner rejects a bracketed host that is not an IP address;
+  the 3.9 on the maintainer's host does not. Reproduced with Python 3.13 and fixed by parsing every URL through one helper
+  that treats an unparsable URL as a violation. The checker and its 31-case self-test now pass under Python
+  3.9 and 3.13 (**Ran**). A lesson for the checker: the self-test found the bug only because it exercises odd
+  inputs, and only a runner with a different Python could show it.
+- The other six jobs (`lint`, `typecheck`, `test`, `secrets`, `hygiene`, `openspec`) passed.
+- Task 6.2 stays unticked until `template` passes on the pull request and a seeded violation has been tried on a
+  scratch branch, which needs a second push.
+
+## 13. What is still UNVERIFIED (current)
+
+As of 2026-11-14. "Closed" items are in the list of section 4.2, with their evidence; this table is only what is open.
+An item is **UNVERIFIED** until a primary source or a run shows it.
+
+| Item | Why open | What would close it |
+|---|---|---|
+| `template` and `gate` on GitHub, a seeded violation on a scratch branch, and the branch ruleset | `image` and six other jobs passed on pull request 5; `template` failed on a bug since fixed (section 12); the ruleset import (task 6.0a) is the maintainer's | The next pull request run; a seeded violation on a scratch branch; the maintainer importing the ruleset |
+| Dependabot's `docker` entry proposing digest updates and ignoring Node majors | Configured, never run | The first Dependabot run after a push |
+| GHCR publishing | Written and disabled (task 6.4); needs the maintainer's approval; the package must then be set public | Maintainer approval, then a first publish |
+| Claude Code and the claude.ai connector against this server, including whether each conversation gets its own session and whether `DELETE /mcp` or `close_binary` is sent on exit (item 18) | Needs real clients (task 8.3). Anthropic's page says a connector accepts fixed request headers (**Docs**), which is not the same as trying it | Task 8.3 (section 14) |
+| A Cloudflare Tunnel in front of it: the idle and absolute limits for a stream that has started, and what happens to a call whose connection a proxy cut | Cloudflare documents a 125 s default Proxy Read Timeout for a first response (**Docs**); the rest is not documented on the pages read | Task 8.3 with a call longer than 125 s |
+| What `DELETE /mcp` should do to a request in flight | Observed: it ends as `200` with an empty body (section 11.5); the spec is silent | A maintainer decision, then a spec line and a test |
+| APK decompilation | No APK sample and no JADX in the image by design | Not planned |
+| Analysis and checkpoint behaviour on a truly large Program (tens of MB), and whether 30 s suffices | The largest sample is 770 KB | A larger permitted target |
+| Four concurrent sessions, 8G heaps, and the effect of unRAID's own PID limit setting | Only two sessions were run, at the default heap | A load test on the host |
+| unRAID: the "New Permissions" tool and checkpoint directories; whether array stop and shutdown use the Docker Stop Timeout; whether a `--stop-timeout` in `ExtraParams` is honoured | Not run, by instruction, or not read | The maintainer on the host |
+| unRAID: how the edit form renders the template (mask, advanced section, Required) | Browser-side code, not rendered here | The maintainer opening it |
+| Which REA tools write to which paths (item 9) | Only `decompile_all` was checked; `capture_process_scenario` writes wherever uid 99 can | An audit if it matters |
+| `TMPDIR` under a long per-session path (item 19) | `TMPDIR` stays unset (section 5.1) | Only if `TMPDIR` is ever set |
+| Upstream's `verify:ghidra:checkpoints` script | Not run | Optional |
+
+Closed since the list of section 4.2 was written but not yet marked there: item 10 (the SDK's SSE comment frames
+and forced-SSE responses, **Ran** in section 7) and item 12's first half (the connector accepts a fixed request
+header, **Docs**, 2026-11-14: Anthropic's custom-connector help page lists "Request headers"). Item 11 and the
+Community Apps rules are moot, since submission was decided against (section 5.5).
+
+## 14. Hand-over for task 8.3 (maintainer steps)
+
+Everything below needs the maintainer's account, client or network, so none of it has been done. Use a
+throwaway key and a samples folder holding only files you may analyze.
+
+1. **Run the container locally**, as in the README's quick start, on a free port, with `MAX_SESSIONS=2`.
+2. **Claude Code:** `claude mcp add --transport http rea http://localhost:<port>/mcp --header "x-api-key: <key>"`,
+   then ask it to list the `rea` tools and to analyze one permitted sample. Watch `docker logs` for
+   `session started`.
+3. **Sessions and cleanup:** start a second Claude Code conversation and see whether it gets a separate session
+   (two `session started` lines); end one and see whether `DELETE /mcp` arrives (`session ended`, reason
+   `deleted by client`) or the session is only reaped after `SESSION_IDLE_TIMEOUT_SEC`; ask the agent to call
+   `close_binary` when done and see that Ghidra's process goes away (`docker exec <container> ps aux`).
+4. **With checkpointing** (`REA_GHIDRA_CHECKPOINT_DIR=/work/checkpoints`, Docker Stop Timeout at least 40 s):
+   annotate a function, end the conversation, start a new one on the same binary, and see the annotation;
+   then try to open the binary from two conversations at once and see "another REA session owns this checkpoint".
+5. **A Cloudflare Tunnel** (`docs/CLOUDFLARE.md`): route `<host>` to the container, set `TRUST_PROXY=true` and
+   `ALLOWED_HOSTS=<host>`, check `https://<host>/healthz`, then repeat step 2 against `https://<host>/mcp`. Try one
+   call that runs longer than 125 s (a large target) and note what the client sees.
+6. **claude.ai custom connector:** Customize, Connectors, Add custom connector, URL `https://<host>/mcp`,
+   request header `x-api-key` with your key, no sign in; enable it in a conversation and run an analysis.
+7. Record each outcome here, as **Ran** or as a defect.
+
+## 15. Review of the documents for secrets (task 7.5)
+
+On 2026-11-14, over every tracked and new file (**Ran**): `gitleaks detect` over the full history and over the working tree
+(`--no-git`), both with the repository's `.gitleaks.toml`, found no leaks. A search for `x-api-key` found only
+placeholders (`<key>`), prose, or code that reads the header; the tests generate their keys at run time. The 32-or-more
+character hex strings are the pinned SHA-256 values and digests of sections 8 and 9, the CI tool hashes, action and
+commit identifiers; the one long base64 string is the public npm integrity value of `rea-agents` (section 1). The only
+IP addresses are `127.0.0.1`, RFC 5737 documentation addresses and test fixtures; the one email-shaped string is a
+reserved `.example` test value. The only host names are public GitHub, GHCR, Docker, Debian, Adoptium, Node.js,
+unRAID, Cloudflare and Anthropic locations. No real host name, key or token of the maintainer appears.
+
+## 16. Reconciling the specs with what was built (task 8.4)
+
+`openspec validate bootstrap-rea-mcp-gateway --strict` passes (2026-11-14). Compared with the built image,
+template and scripts, every requirement of `container-image`, `unraid-template`, `secret-hygiene` and the
+image-related scenarios of `session-management` and `ci-gate` is met or has its evidence above, with these
+differences. **None of the spec changes below has been made**: a spec change is the maintainer's to decide, and the
+one the maintainer approved (the JDK archive in the `secret-hygiene` fetch scenario, section 5.5) is already in.
+
+| Observation | Proposed change, for the maintainer |
+|---|---|
+| The image downloads a Temurin JDK and verifies its SHA-256 exactly like Ghidra; `container-image` has a "Pinned, verified Ghidra" requirement and nothing for the JDK (a wrong JDK hash fails the build: section 11.1, `scripts/check_hash_pins.sh`) | Add a requirement, "Pinned, verified JDK when the base distribution packages none", with the same two scenarios |
+| `DELETE /mcp`, and `docker stop`, while a request is in flight end that request as HTTP `200` with an empty body (section 11.5). `session-management` fixes only the child-exit case | Say what a request in flight gets when its session is ended by the client or by shutdown (for example a JSON-RPC error), then add a test |
+| `container-image` says the gateway reports an unwritable `/work` and the entrypoint reports `/tmp`; the built entrypoint reports both, plus `/work/home` and `/work/sessions` (section 11.2) | Optionally name those two directories in the "Unwritable work directory" scenario |
+| The CI `template` job does not call `xmllint`, which design D11 mentions (section 12) | None needed; D11's wording could say "a strict XML parse" |
+| `unraid-template` fixes `Category` as the bare `Tools:`, and the template follows it; Community Apps was not consulted, since submission was decided against | None unless submission is reconsidered |
+| Design open question 4 (which image tags to publish) is still open; `scripts/image_tags.sh` implements a proposal | Decide the tag policy before publishing is enabled |
+
+The design's "Unverified assumptions" section was refreshed to the current state (it is a planning
+artifact, not a spec).
+
+## 17. Acceptance checks 8.1 and 8.2
+
+Run on 2026-11-14 on the final tree of the working branch (**Ran**).
+
+- **8.1, secrets.** `gitleaks detect` with `.gitleaks.toml` over all 23 commits, and over the working tree with
+  `--no-git`: no leaks. A grep pass for 32-or-more-character hex strings and 40-or-more-character base64-like strings in
+  every tracked file (the lockfile and `LICENSE` excluded) finds only the five documented 64-character pins
+  and digests (Ghidra, the JDK, the base image, gitleaks, Node) and the public npm integrity string of
+  `rea-agents`; the commits of this branch add only the Ghidra, JDK and base-image values.
+- **8.2, binaries and samples.** `git ls-files --eol` shows one binary, `unraid/icon.png`; no tracked path lies under
+  `samples/` or `work/`; `scripts/check_hygiene.sh` passes; `git check-ignore` confirms that `samples/`, `work/`,
+  `*.pcap`, `*.pcapng`, `*.gpr`, `*.rep`, `*.tns` and `.env` are ignored.
+- **Tests.** As a non-root user in a Node 24.22.3 container: `npm run lint` and `npm run typecheck` clean, `npm test`
+  359 passed, none skipped (the one skip of a root run is `it.skipIf(running as root)`).
+

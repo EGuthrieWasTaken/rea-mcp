@@ -41,19 +41,19 @@ Ask the maintainer before pushing or publishing to GHCR.
 
 - [x] 4.1 Choose and pin the Ghidra release; record version, URL, SHA-256, and the JDK major version from that release's notes in `docs/DESIGN.md`, with sources
 - [x] 4.2 Verify Debian bookworm package availability and versions for a full JDK (with `javac`), `tshark`, `procps`, `binutils`, `tini`, and `rizin`, and that the `node:24-bookworm-slim` tag resolves to Node 24.22.1 or newer; record results and any fallback (for example Temurin) in `docs/DESIGN.md`
-- [ ] 4.3 Write `docker/Dockerfile` (multi-stage, `linux/amd64`, Ghidra stage with hash verification, runtime as `99:100`, `WORKDIR /work`, volumes, `tini`, Node-based `HEALTHCHECK`, `GHIDRA_INSTALL_DIR=/opt/ghidra`, writable `/tmp`, no dot-prefixed `TMPDIR`, no `rea-agents setup`); verify the build succeeds and fails when `GHIDRA_SHA256` is altered
-- [ ] 4.4 Verify the `GHIDRA_MAX_HEAP` → `GHIDRA_HEADLESS_MAXMEM` mapping reaches Ghidra: check the Ghidra JVM's effective max heap in a running container
-- [ ] 4.5 Add an entrypoint check that reports clearly when `/work` or `/tmp` is not writable by uid 99, and that creates `/work/home` and `/work/sessions`; verify with a root-owned bind mount
-- [ ] 4.6 Verify the image under `--cap-drop=ALL --security-opt=no-new-privileges:true` with `/samples` read-only: runs as 99:100, `java`/`javac`/`ps`/`tshark`/`objdump` resolve, health becomes `healthy`, authenticated `initialize` succeeds, headless Ghidra starts, and `docker stop` exits cleanly
-- [ ] 4.7 Write a smoke-test script (generate throwaway key, run image, `curl /healthz`, MCP `initialize` with and without the key, assert `401` without, assert exit non-zero with no key); verify it passes locally
+- [x] 4.3 Write `docker/Dockerfile` (multi-stage, `linux/amd64`, Ghidra stage with hash verification, runtime as `99:100`, `WORKDIR /work`, volumes, `tini`, Node-based `HEALTHCHECK`, `GHIDRA_INSTALL_DIR=/opt/ghidra`, writable `/tmp`, no dot-prefixed `TMPDIR`, no `rea-agents setup`); verify the build succeeds and fails when `GHIDRA_SHA256` is altered
+- [x] 4.4 Verify the `GHIDRA_MAX_HEAP` → `GHIDRA_HEADLESS_MAXMEM` mapping reaches Ghidra: check the Ghidra JVM's effective max heap in a running container
+- [x] 4.5 Add an entrypoint check that reports clearly when `/work` or `/tmp` is not writable by uid 99, and that creates `/work/home` and `/work/sessions`; verify with a root-owned bind mount
+- [x] 4.6 Verify the image under `--cap-drop=ALL --security-opt=no-new-privileges:true` with `/samples` read-only: runs as 99:100, `java`/`javac`/`ps`/`tshark`/`objdump` resolve, health becomes `healthy`, authenticated `initialize` succeeds, headless Ghidra starts, and `docker stop` exits cleanly
+- [x] 4.7 Write a smoke-test script (generate throwaway key, run image, `curl /healthz`, MCP `initialize` with and without the key, assert `401` without, assert exit non-zero with no key); verify it passes locally
 
 ## 5. unRAID template
 
 - [x] 5.1 Read the current unRAID Docker template and Community Apps guidelines and record the applicable rules (attribute names, advanced display mode, icon guidance, whether `ca_profile.xml` is expected, how a template sets a Docker stop timeout) with source links in `docs/DESIGN.md`
-- [ ] 5.2 Create `unraid/icon.png` as original artwork at the size the guidelines recommend; verify it is a valid PNG with no third-party marks
-- [ ] 5.3 Write `unraid/rea-mcp.xml` with all metadata fields, the port, masked empty required `REA_MCP_API_KEY`, read-only `/samples`, `/work` default, and the eight advanced variables (`REA_GHIDRA_CHECKPOINT_DIR` empty by default); verify with `xmllint --noout`
-- [ ] 5.4 Write the template check script (required elements and `Config` entries, empty masked key, `ro` samples, lowercase repository, defaults equal to gateway defaults); verify it fails on a deliberately broken copy
-- [ ] 5.5 Add `ca_profile.xml` if task 5.1 shows it is expected; otherwise note the decision in `docs/DESIGN.md`
+- [x] 5.2 Create `unraid/icon.png` as original artwork at the size the guidelines recommend; verify it is a valid PNG with no third-party marks
+- [x] 5.3 Write `unraid/rea-mcp.xml` with all metadata fields, the port, masked empty required `REA_MCP_API_KEY`, read-only `/samples`, `/work` default, and the eight advanced variables (`REA_GHIDRA_CHECKPOINT_DIR` empty by default); verify with `xmllint --noout`
+- [x] 5.4 Write the template check script (required elements and `Config` entries, empty masked key, `ro` samples, lowercase repository, defaults equal to gateway defaults); verify it fails on a deliberately broken copy
+- [x] 5.5 Add `ca_profile.xml` if task 5.1 shows it is expected; otherwise note the decision in `docs/DESIGN.md`
 
 ## 6. CI
 
@@ -61,22 +61,22 @@ Ask the maintainer before pushing or publishing to GHCR.
 - [ ] 6.0a Maintainer imports `.github/rulesets/main.json` under Settings → Rules → Rulesets and confirms a direct push to `main` is rejected
 - [x] 6.1 Add `.github/workflows/ci.yml` jobs for lint, typecheck, and tests on Node 24; add each to `gate`'s `needs`; verify they pass on a branch run
 - [ ] 6.2 Add the gitleaks job scanning full history (`fetch-depth: 0`) and the template XML check job; verify both pass and that each fails on a seeded violation in a scratch branch
-- [ ] 6.3 Add the image build job and run the smoke-test script from 4.7 against the built image; verify on a branch run
+- [x] 6.3 Add the image build job and run the smoke-test script from 4.7 against the built image; verify on a branch run
 - [ ] 6.4 Add GHCR publishing on `main` and version tags using the workflow token with least-privilege `permissions`, lowercase image name, and no stored secrets; **get maintainer approval before this job is enabled or first runs**
 - [ ] 6.5 (Optional) Add `.github/workflows/release.yml` for tagged releases
 
 ## 7. Documentation
 
-- [ ] 7.1 Complete `docs/DESIGN.md`: architecture, gateway choice, REA launch command, Ghidra/JDK pin and heap mechanism, session and keep-alive design, checkpoint design, and every remaining UNVERIFIED item
-- [ ] 7.2 Expand `README.md`: quick start, environment-variable table, long-running-call behaviour (~100 s proxy timeout and keep-alives), the optional checkpoint setting and its trade-offs, telling agents to call `close_binary` when finished with a binary, unRAID install (template repository URL or copying the XML to `/boot/config/plugins/dockerMan/templates-user/`), key generation with `openssl rand -hex 32`, and connecting from Claude Code and as a Claude custom connector, with placeholders only
-- [ ] 7.3 Write `docs/CLOUDFLARE.md`: point a tunnel hostname at `container:8080`, set `TRUST_PROXY=true`, do not put Cloudflare Access service-token policies on the hostname, the ~100 s origin timeout
-- [ ] 7.4 Write `docs/SECURITY.md`: what the server can do, that isolation between sessions is by process and working directory only, that checkpoint annotations are shared across conversations, key rotation with `REA_MCP_API_KEYS`, mount only a dedicated samples directory, keep checkpoints on persistent storage separate from samples, consider blocking container egress, memory sizing, and the legal note on only analyzing permitted software
-- [ ] 7.5 Review all docs for real hostnames, keys, or tokens; verify with gitleaks and a grep for `x-api-key` showing placeholders only
+- [x] 7.1 Complete `docs/DESIGN.md`: architecture, gateway choice, REA launch command, Ghidra/JDK pin and heap mechanism, session and keep-alive design, checkpoint design, and every remaining UNVERIFIED item
+- [x] 7.2 Expand `README.md`: quick start, environment-variable table, long-running-call behaviour (~100 s proxy timeout and keep-alives), the optional checkpoint setting and its trade-offs, telling agents to call `close_binary` when finished with a binary, unRAID install (template repository URL or copying the XML to `/boot/config/plugins/dockerMan/templates-user/`), key generation with `openssl rand -hex 32`, and connecting from Claude Code and as a Claude custom connector, with placeholders only
+- [x] 7.3 Write `docs/CLOUDFLARE.md`: point a tunnel hostname at `container:8080`, set `TRUST_PROXY=true`, do not put Cloudflare Access service-token policies on the hostname, the ~100 s origin timeout
+- [x] 7.4 Write `docs/SECURITY.md`: what the server can do, that isolation between sessions is by process and working directory only, that checkpoint annotations are shared across conversations, key rotation with `REA_MCP_API_KEYS`, mount only a dedicated samples directory, keep checkpoints on persistent storage separate from samples, consider blocking container egress, memory sizing, and the legal note on only analyzing permitted software
+- [x] 7.5 Review all docs for real hostnames, keys, or tokens; verify with gitleaks and a grep for `x-api-key` showing placeholders only
 
 ## 8. Acceptance
 
-- [ ] 8.1 Run the scripted secret check over the working tree and full history (gitleaks plus a grep pass for key-shaped strings) and confirm zero findings
-- [ ] 8.2 Confirm the only tracked binary is `unraid/icon.png` and nothing under `samples/` or `work/` is tracked
+- [x] 8.1 Run the scripted secret check over the working tree and full history (gitleaks plus a grep pass for key-shaped strings) and confirm zero findings
+- [x] 8.2 Confirm the only tracked binary is `unraid/icon.png` and nothing under `samples/` or `work/` is tracked
 - [ ] 8.3 End-to-end check from Claude Code against a locally running container: `claude mcp add --transport http rea http://localhost:8080/mcp --header "x-api-key: <key>"`, then list tools and run one analysis on a permitted sample; also check whether separate conversations get separate MCP sessions, whether the client sends `DELETE /mcp` or calls `close_binary` on exit, and, with checkpointing enabled, the reconnect-on-the-same-binary case
 - [ ] 8.4 Run `openspec validate bootstrap-rea-mcp-gateway --strict` and reconcile specs with what was built
 - [ ] 8.5 Report to the maintainer the final list of open questions, assumptions, and any item still marked UNVERIFIED

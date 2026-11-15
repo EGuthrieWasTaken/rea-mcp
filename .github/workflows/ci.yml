@@ -113,16 +113,44 @@ jobs:
       - run: npm ci
       - run: npm test
 
-  # Jobs still to come as the code lands (openspec change bootstrap-rea-mcp-gateway, group 6):
-  # unraid-template, image build + smoke test. Each must be added to `needs:` below when it is
-  # added here.
+  # openspec:unraid-template#automated-template-validation. Standard library only, so nothing is
+  # installed or downloaded. The checker parses the XML strictly (a malformed file fails it) and reads the
+  # gateway's defaults from src/config.ts. The self-test seeds deliberate violations and requires each to
+  # be rejected, so the check cannot quietly stop checking.
+  template:
+    name: template
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check unraid/rea-mcp.xml and unraid/icon.png
+        run: python3 scripts/check_template.py
+      - name: Every seeded violation must be rejected
+        run: python3 scripts/check_template.py --self-test
+
+  # openspec:container-image. Builds the image with the runner's own Docker (no third-party action), proves
+  # that a wrong Ghidra or JDK hash fails the build, then runs the smoke test against the built image. It
+  # downloads Ghidra and the JDK (about 800 MB), each verified against the SHA-256 pinned in the Dockerfile.
+  # Nothing is pushed anywhere.
+  image:
+    name: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build the image
+        run: docker buildx build --platform linux/amd64 -f docker/Dockerfile -t rea-mcp:ci --load .
+      - name: A wrong Ghidra or JDK hash must fail the build
+        run: scripts/check_hash_pins.sh rea-mcp-hashcheck
+      - name: Smoke test the built image
+        run: scripts/smoke_test.sh rea-mcp:ci
 
   # ---- The required check: depends on every job above, tolerates skips ----
   # openspec:ci-gate#branch-protection-and-the-gate-job
   gate:
     name: gate
     if: always()
-    needs: [secrets, hygiene, openspec, lint, typecheck, test]
+    needs: [secrets, hygiene, openspec, lint, typecheck, test, template, image]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
