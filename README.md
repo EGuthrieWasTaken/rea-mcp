@@ -230,7 +230,7 @@ See [`docs/SECURITY.md`](docs/SECURITY.md).
 | [`docs/SECURITY.md`](docs/SECURITY.md) | What the server can do, isolation limits, key rotation, hardening |
 | [`docs/CLOUDFLARE.md`](docs/CLOUDFLARE.md) | Exposing it through a Cloudflare Tunnel |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | Architecture and the evidence behind every claim, including what is still UNVERIFIED |
-| [`openspec/changes/bootstrap-rea-mcp-gateway/`](openspec/changes/bootstrap-rea-mcp-gateway/) | The proposal, design, tasks and the specs (`npx @fission-ai/openspec validate --all --strict`) |
+| [`openspec/specs/`](openspec/specs/), [`openspec/changes/`](openspec/changes/) | The requirements, and the proposals, designs and tasks behind them; the first change is archived there (`npx @fission-ai/openspec validate --all --strict`) |
 | [`openspec/config.yaml`](openspec/config.yaml), [`CLAUDE.md`](CLAUDE.md) | Hard constraints for every change |
 
 ## Ground rules

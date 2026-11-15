@@ -6,7 +6,7 @@
 > passes the smoke test (section 12); Claude Code has been run end to end against the container (section 14); and the claude.ai connector and a Cloudflare
 > Tunnel are still to do.
 > Section 13 is the current list of what is **UNVERIFIED**. The decisions that shape the specs live in
-> [`openspec/changes/bootstrap-rea-mcp-gateway/design.md`](../openspec/changes/bootstrap-rea-mcp-gateway/design.md);
+> [`openspec/changes/archive/2026-11-15-bootstrap-rea-mcp-gateway/design.md`](../openspec/changes/archive/2026-11-15-bootstrap-rea-mcp-gateway/design.md);
 > this document records the evidence behind them. User-facing guidance is in the
 > [README](../README.md), [`SECURITY.md`](SECURITY.md) and [`CLOUDFLARE.md`](CLOUDFLARE.md).
 
