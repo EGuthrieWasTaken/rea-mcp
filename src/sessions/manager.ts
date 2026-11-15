@@ -444,13 +444,22 @@ export class SessionManager {
       this.logger.warn("REA stderr", { sessionId: session.id, stream: "stderr", line });
     }
     // Every call still waiting for REA gets an error, not silence, before the session goes.
+    await this.failInFlight(session, "REA exited");
+    await this.end(session, "REA exited");
+  }
+
+  /**
+   * Answer every request of this session that REA has not answered with a JSON-RPC error, so that a client
+   * whose call is still open gets an answer instead of a stream that just ends. A message the client can no
+   * longer receive (its stream is already closed) is dropped; there is nobody to tell.
+   */
+  private async failInFlight(session: Session, message: string): Promise<void> {
     const pending = [...session.inFlight.keys()];
     session.inFlight.clear();
     session.progressTokens.clear();
     await Promise.allSettled(
-      pending.map((id) => session.transport.send({ jsonrpc: "2.0", id, error: { code: -32603, message: "REA exited" } })),
+      pending.map((id) => session.transport.send({ jsonrpc: "2.0", id, error: { code: -32603, message } })),
     );
-    await this.end(session, "REA exited");
   }
 
   /** Remove a session and stop everything it owns. Safe to call more than once. */
@@ -459,6 +468,9 @@ export class SessionManager {
     session.ended = true;
     this.sessions.delete(session.id);
     this.logger.info("session ended", { sessionId: session.id, reason });
+    // Whatever ends a session (the client's DELETE, shutdown, a failed write to REA), a call still open gets an
+    // error before its stream is closed. (After REA exits, childExited has already answered them, so none are left.)
+    await this.failInFlight(session, "Session ended");
     await Promise.allSettled([session.transport.close(), this.stopChild(session)]);
   }
 

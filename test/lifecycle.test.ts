@@ -70,6 +70,57 @@ describe("DELETE /mcp", () => {
   });
 });
 
+describe("a call still open when its session ends", () => {
+  // Without this, the client's stream simply closed with no answer (an empty HTTP 200), which a client cannot
+  // tell from a lost connection. Whatever ends the session, the call gets an error to act on. Each call's
+  // expectation is attached as soon as the call starts, because the error can arrive before the test looks.
+  const sessionEnded: Record<string, unknown> = { code: -32603, message: expect.stringContaining("Session ended") };
+
+  it("gets an error from the client's own DELETE, not an empty stream", async () => {
+    const harness = await startHarness();
+    const { client, transport } = await connectClient(harness);
+    const answer = expect(client.callTool({ name: "slow", arguments: { ms: 60_000 } })).rejects.toMatchObject(sessionEnded);
+    await sleep(150);
+    await transport.terminateSession();
+    await answer;
+    await expect.poll(() => harness.manager.size, { timeout: 5_000 }).toBe(0);
+    expect(reasonsEnded(harness.entries())).toEqual(["deleted by client"]);
+  });
+
+  it("is answered for every call that was waiting, not just one", async () => {
+    const harness = await startHarness();
+    const { client, transport } = await connectClient(harness);
+    const answers = [1, 2, 3].map(() =>
+      expect(client.callTool({ name: "slow", arguments: { ms: 60_000 } })).rejects.toMatchObject(sessionEnded),
+    );
+    await sleep(150);
+    await transport.terminateSession();
+    await Promise.all(answers);
+  });
+
+  it("gets an error when the gateway shuts down", async () => {
+    const harness = await startHarness();
+    const { client } = await connectClient(harness);
+    const answer = expect(client.callTool({ name: "slow", arguments: { ms: 60_000 } })).rejects.toMatchObject(sessionEnded);
+    await sleep(150);
+    await harness.manager.closeAll();
+    await answer;
+    expect(reasonsEnded(harness.entries())).toEqual(["gateway shutdown"]);
+  });
+
+  it("is not answered twice when REA had already failed it by exiting", async () => {
+    const harness = await startHarness();
+    const { client } = await connectClient(harness);
+    // REA's exit answers both with its own message; ending the session afterwards adds nothing and changes neither.
+    const reaExited: Record<string, unknown> = { code: -32603, message: expect.stringContaining("REA exited") };
+    const waiting = expect(client.callTool({ name: "slow", arguments: { ms: 60_000 } })).rejects.toMatchObject(reaExited);
+    await sleep(100);
+    const crashing = expect(client.callTool({ name: "crash", arguments: { code: 3 } })).rejects.toMatchObject(reaExited);
+    await Promise.all([waiting, crashing]);
+    await expect.poll(() => harness.manager.size, { timeout: 5_000 }).toBe(0);
+  });
+});
+
 describe("idle reaping (scaled time)", () => {
   it("ends a session that has been idle for the timeout, stopping its REA", async () => {
     const harness = await startHarness({ idleTimeoutMs: 400, reapIntervalMs: 30 });

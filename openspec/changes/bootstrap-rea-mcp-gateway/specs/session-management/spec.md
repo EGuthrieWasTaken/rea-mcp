@@ -85,6 +85,26 @@ the exit code or signal.
 - **WHEN** a session's REA process exits while a tool call is in flight
 - **THEN** the client receives an error for that call, and subsequent requests with that session ID receive `404`
 
+### Requirement: Calls still open when a session ends are answered
+When a session ends for any reason (the client's `DELETE`, gateway shutdown, REA
+exiting, or a failed write to REA) while requests from its client are waiting for
+REA, the gateway SHALL answer each of those requests with a JSON-RPC error
+response before it closes the session's streams, so that a client is never left
+with a stream that ends without an answer. A request already answered by REA
+SHALL NOT be answered a second time.
+
+#### Scenario: Client deletes its session during a call
+- **WHEN** a client sends `DELETE /mcp` while one or more of its requests are waiting for REA
+- **THEN** each waiting request receives a JSON-RPC error response, and none is left unanswered
+
+#### Scenario: Gateway shutdown during a call
+- **WHEN** the gateway receives `SIGTERM` while a request is waiting for REA
+- **THEN** that request receives a JSON-RPC error response before its stream is closed
+
+#### Scenario: REA's exit does not cause a second answer
+- **WHEN** REA exits while requests are waiting, so that each has already been answered with an error
+- **THEN** ending the session sends no further response for any of them
+
 ### Requirement: Reliable child termination
 When ending a session the gateway SHALL terminate the REA process in this
 order: close the child's standard input, which REA treats as a shutdown request
