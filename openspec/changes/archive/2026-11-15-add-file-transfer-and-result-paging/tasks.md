@@ -58,6 +58,6 @@ written as UNVERIFIED.
 ## 9. Reconcile and hand over
 
 - [x] 9.1 Reconcile the specs with what was built, as bootstrap task 8.4 did: list every difference, put it to the maintainer, and fix the spec or the code; verify `npx @fission-ai/openspec validate --all --strict` passes
-- [ ] 9.2 With the maintainer's approval, push the branch, open a pull request, and merge it when CI is green; the `latest` image then rebuilds from `main`
-- [ ] 9.3 **Maintainer step.** After pulling the new image on unRAID, set `PUBLIC_BASE_URL`, and upload a file through the tunnel from the machine the agent runs on (with the Access bypass in place if Access is used); report whether the request-body limit, the Access bypass and the agent sandbox's reach (design assumptions 5 to 7) held, and record the answer in `docs/DESIGN.md`
-- [ ] 9.4 Archive this change with `openspec archive`, once 9.3 is recorded
+- [x] 9.2 With the maintainer's approval, push the branch, open a pull request, and merge it when CI is green; the `latest` image then rebuilds from `main`
+- [x] 9.3 **Maintainer step.** After pulling the new image on unRAID, set `PUBLIC_BASE_URL`, and upload a file through the tunnel from the machine the agent runs on (with the Access bypass in place if Access is used); report whether the request-body limit, the Access bypass and the agent sandbox's reach (design assumptions 5 to 7) held, and record the answer in `docs/DESIGN.md`
+- [x] 9.4 Archive this change with `openspec archive`, once 9.3 is recorded

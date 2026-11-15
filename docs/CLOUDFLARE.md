@@ -34,8 +34,9 @@ against this project; **UNVERIFIED** has not been confirmed.
    credential on every request. Whether the connector's request headers can carry both was not tried.
 5. **Set `PUBLIC_BASE_URL=https://<host>`** so that upload and download URLs name your public host over HTTPS. The agent
    runs `curl` against that URL from its own machine. Without it the URL is built from the `Host` header with
-   `http://`; Cloudflare redirects `http` to `https` (if you have that setting on) and a redirected `PUT` loses its
-   body, so the upload fails. (`TRUST_PROXY=true` also works: the tunnel sets `X-Forwarded-Proto`.)
+   `http://`; Cloudflare answers `http` with a `301` to `https` (it did, on the maintainer's host) and `curl` does not
+   follow it, so the upload fails. (`TRUST_PROXY=true` also works if the tunnel sets `X-Forwarded-Proto`; that was
+   not checked.)
 6. **Use the standard HTTPS port.** Claude connects from Anthropic's cloud and only to port 443 (**Source**,
    Anthropic's custom connector page), which a tunnel hostname provides.
 
@@ -44,20 +45,27 @@ Then follow the client steps in the [README](../README.md#connect-a-client).
 ## Uploads and downloads through the tunnel
 
 `PUT /upload/<id>/<secret>` and `GET /download/<id>/<secret>` are served at the same host name as `/mcp` and need
-no API key (see [`SECURITY.md`](SECURITY.md)). Three things to check, none of which could be tested without your
-tunnel (**UNVERIFIED**, task 9.3 of the change that added them):
+no API key (see [`SECURITY.md`](SECURITY.md)). Tried on 2026-11-15 through the maintainer's own tunnel (evidence:
+[`DESIGN.md`](DESIGN.md) 18.8), with `PUBLIC_BASE_URL`, `TRUST_PROXY=true` and `ALLOWED_HOSTS` set as above:
 
-- **Request-body limit.** Cloudflare's documented maximum upload size for a proxied request is believed to be 100 MB
-  on the Free and Pro plans (200 MB Business, 500 MB Enterprise); this was recalled, not checked against Cloudflare's
-  page. A bigger body is refused by Cloudflare before it reaches the container, so `MAX_UPLOAD_BYTES` above that
-  figure does not help. Use the `/samples` share for large files, or point `PUBLIC_BASE_URL` at an address on your
-  own network.
-- **Cloudflare Access.** If an Access application covers the host name, `curl` meets its login instead of the
-  gateway. The upload and download paths would need a bypass policy (an Access application for `/upload/*` and
-  `/download/*` with a Bypass action); how to write it was not verified. (Section "Set-up", step 4, already says
-  not to put a service-token policy on the host.)
-- **Whether the agent can reach you.** A local Claude Code session can. The claude.ai code-execution sandbox has a
-  network allowlist, and whether your host name is on it was not checked.
+- **Request-body limit: 100 MiB (104,857,600 bytes) (Ran).** Uploads of 1 MiB, 90 MB, 99 MB, 100 MB and exactly
+  104,857,600 bytes went through and were saved; 104,857,601 bytes and 105 MB were refused with an HTML
+  `413 Payload Too Large` that did not come from the gateway (the gateway's log has no 413 and its own answer is JSON).
+  This matches Cloudflare's published 100 MB figure for the Free and Pro plans (a plan with a higher limit may allow
+  more; which plan this is was not checked). So set `MAX_UPLOAD_BYTES=104857600` behind a tunnel on those plans: the
+  agent is then told the limit when it asks for an upload, and an oversized file gets the gateway's readable `413`
+  instead of Cloudflare's page. For a larger file use the `/samples` share, or point `PUBLIC_BASE_URL` at an address on
+  your own network.
+- **`http` is redirected (Ran).** Cloudflare answers a plain-`http` request to this host with a `301` to `https`, and
+  `curl` does not follow a redirect unless told to, so an upload URL that begins with `http://` fails. That is what
+  `PUBLIC_BASE_URL` prevents.
+- **Cloudflare Access: not in use on this host name, so nothing was bypassed.** If an Access application covers the
+  host name, `curl` would meet its login instead of the gateway, and the upload and download paths would need a bypass
+  policy (an Access application for `/upload/*` and `/download/*` with a Bypass action). How to write that was **not
+  verified**. (Section "Set-up", step 4, already says not to put a service-token policy on the host.)
+- **Whether the agent can reach you.** `curl` run on the unRAID host itself reached the public host name. A local
+  Claude Code session can do the same. The claude.ai code-execution sandbox has a network allowlist, and whether your
+  host name is on it was **not checked**.
 
 A test you can run from the machine the agent runs on, with a throwaway file and a ticket from the agent:
 
@@ -97,4 +105,4 @@ window ends. If calls suddenly return `429`, check the key first.
 
 - `curl -i https://<host>/healthz` returns `200` and `{"status":"ok"}`.
 - The same with a request to `https://<host>/mcp` and no key returns `401` and an empty body.
-- An upload through the tunnel (above) is task 9.3 of `add-file-transfer-and-result-paging` and is the maintainer's to run.
+- An upload through the tunnel: the test below, which was run on 2026-11-15 (above).

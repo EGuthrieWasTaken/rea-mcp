@@ -221,7 +221,7 @@ curl -sS --fail-with-body -T ./sample.dll 'https://<host>/upload/<id>/<secret>'
   here). Without a shell, copy the file into the `/samples` share as before.
 - **Set `PUBLIC_BASE_URL`** (for example `https://<host>`) when the container is behind a tunnel or proxy.
   Without it the URL is built from the request's `Host` header with `http://`, which a proxy that redirects
-  `http` to `https` turns into a failed upload (a redirected `PUT` loses its body). With `TRUST_PROXY=true` the
+  `http` to `https` (Cloudflare does, with a `301` that `curl` does not follow) turns into a failed upload. With `TRUST_PROXY=true` the
   proxy's `X-Forwarded-Proto` and `X-Forwarded-Host` are used instead. `request_upload` says which rule it
   used (`url_source`).
 - **A URL works once and expires** after `TRANSFER_TICKET_TTL_SEC` (15 minutes). The URL *is* the authorization,
@@ -233,9 +233,9 @@ curl -sS --fail-with-body -T ./sample.dll 'https://<host>/upload/<id>/<secret>'
 - **Nothing deletes from the inbox.** It is capped by `INBOX_MAX_BYTES`; when it is full `request_upload`
   says so, and you clear it from the share. Files are never made executable.
 - **Limits.** One upload is at most `MAX_UPLOAD_BYTES`. A proxy in front can have a lower limit of its own;
-  Cloudflare is believed to cap a request body at 100 MB on its Free and Pro plans (**UNVERIFIED**), which would
-  make a bigger upload fail with a Cloudflare error before it reaches the container. For such files use the
-  `/samples` share, or set `PUBLIC_BASE_URL` to an address on your own network.
+  through a Cloudflare Tunnel, bodies up to exactly 100 MiB (104,857,600 bytes) were accepted and one byte more was
+  refused with Cloudflare's own `413` page (**Ran** on one tunnel; `docs/CLOUDFLARE.md`), so set `MAX_UPLOAD_BYTES=104857600`
+  there. For larger files use the `/samples` share, or set `PUBLIC_BASE_URL` to an address on your own network.
 - `upload_status` shows progress and the outcome of an upload, if curl's output is lost.
 
 ### Reading large results

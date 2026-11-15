@@ -113,8 +113,8 @@ the first match.
 The gateway SHALL count failed authentication attempts per source IP address
 and, once a source exceeds the allowed number of failures within the limiting
 window, SHALL reject further requests from that source with `429` until the
-window expires, without evaluating the presented key. Successful requests SHALL
-NOT count against the limit.
+window expires, without evaluating the presented key or ticket. Successful
+requests SHALL NOT count against the limit.
 
 #### Scenario: Limit reached
 - **WHEN** one source IP exceeds the allowed number of failed attempts within the window
@@ -127,6 +127,20 @@ NOT count against the limit.
 #### Scenario: Other sources unaffected
 - **WHEN** one source IP is rate-limited
 - **THEN** a request with a correct key from a different source IP is authenticated
+
+### Requirement: What counts as a failed attempt
+A failed authentication attempt SHALL be a request to `/mcp` with a missing or
+wrong key, or a request to a transfer route whose ticket id is unknown or whose
+secret is wrong. A request to a transfer route that presents a correct secret
+SHALL NOT be one.
+
+#### Scenario: Failed ticket attempts count
+- **WHEN** one source IP sends enough requests to transfer routes with unknown ids or wrong secrets to exceed the limit
+- **THEN** its next request to `/mcp` and to a transfer route receives `429`
+
+#### Scenario: A correct ticket does not count
+- **WHEN** a source uploads and downloads with valid tickets many times
+- **THEN** it is not rate limited
 
 ### Requirement: Source address resolution
 The source IP used for rate limiting and logging SHALL be the socket peer
