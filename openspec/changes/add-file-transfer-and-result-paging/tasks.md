@@ -17,7 +17,7 @@ written as UNVERIFIED.
 
 ## 3. Tickets and the inbox
 
-- [ ] 3.1 Implement the ticket store in `src/transfer/tickets.ts` (D5): ids, 256-bit secrets kept as digests, constant-time lookup, single claim, states, lazy expiry, the 100-ticket cap, dropping finished tickets after one lifetime, revocation by session; unit-test a wrong secret and an unknown id giving the same outcome, a second claim, expiry before and after a claim, the cap, that a stored ticket never holds the secret, and that an accepted API key is not a secret
+- [x] 3.1 Implement the ticket store in `src/transfer/tickets.ts` (D5): ids, 256-bit secrets kept as digests, constant-time lookup, single claim, states, lazy expiry, the 100-ticket cap, dropping finished tickets after one lifetime, revocation by session; unit-test a wrong secret and an unknown id giving the same outcome, a second claim, expiry before and after a claim, the cap, that a stored ticket never holds the secret, and that an accepted API key is not a secret
 - [ ] 3.2 Implement name validation and the inbox in `src/transfer/inbox.ts` (D7, D8): the name rules, the quota across live tickets, the temporary file, the no-clobber `link` commit and the `rename` commit, refusing symlinks and directories, startup cleanup; unit-test every name rule (a `/`, a backslash, `..`, a leading dot, a NUL, a control character, 200 and 201 bytes, multi-byte names), a file appearing between ticket and commit, a symlink planted at the name, a full inbox, and that a failed write leaves no temporary file
 - [ ] 3.3 Implement ticket URL construction (D9) in `src/transfer/url.ts`; unit-test the three rules in order, forwarded headers ignored without `TRUST_PROXY`, an invalid `Host`, a missing `Host`, and `url_source`
 
