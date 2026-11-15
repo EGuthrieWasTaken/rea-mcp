@@ -28,6 +28,10 @@ export interface LogFields {
   ticket?: string;
   /** A size in bytes. */
   bytes?: number;
+  /** The name of a tool (REA's or the gateway's), for events about a result or a tool call. */
+  tool?: string;
+  /** A stored result's id. */
+  resultId?: string;
   /** For lines captured from a child process. */
   stream?: "stdout" | "stderr";
   line?: string;
@@ -49,6 +53,8 @@ const ALLOWED_FIELDS = [
   "count",
   "ticket",
   "bytes",
+  "tool",
+  "resultId",
   "stream",
   "line",
 ] as const satisfies readonly (keyof LogFields)[];

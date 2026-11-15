@@ -4,6 +4,7 @@ import { accessSync, constants, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { createKeyVerifier } from "./auth.js";
 import { ConfigError, loadConfig, type Config } from "./config.js";
+import { createFeatures, type Features } from "./features.js";
 import { createFailureLimiter } from "./http/ratelimit.js";
 import { createGatewayServer, listen, shutdown } from "./http/server.js";
 import { KeyError, loadKeys } from "./keys.js";
@@ -58,6 +59,27 @@ async function main(): Promise<void> {
     return;
   }
 
+  // The inbox, the stored results and the transfer routes (specs: file-transfer, result-paging).
+  let features: Features;
+  try {
+    features = await createFeatures({
+      logger,
+      workDir: config.workDir,
+      publicBaseUrl: config.publicBaseUrl,
+      trustProxy: config.trustProxy,
+      maxUploadBytes: config.maxUploadBytes,
+      inboxMaxBytes: config.inboxMaxBytes,
+      ticketTtlSec: config.transferTicketTtlSec,
+      resultInlineLimit: config.resultInlineLimitChars,
+    });
+  } catch (error) {
+    logger.error("the work directory is not usable", {
+      reason: `${config.workDir}/inbox and ${config.workDir}/results must be writable (${errorCode(error)})`,
+    });
+    process.exitCode = 1;
+    return;
+  }
+
   let launch: ReaLaunch;
   try {
     launch = productionLaunch(process.env);
@@ -79,12 +101,16 @@ async function main(): Promise<void> {
     maxSessions: config.maxSessions,
     idleTimeoutMs: config.sessionIdleTimeoutSec * 1000,
     terminationGraceMs: graceMs,
+    gateway: features.gateway,
   });
+  // A transfer that ends counts as activity for the session that asked for it.
+  features.tickets.onEnd = (ticket) => sessions.touch(ticket.sessionId);
   const server = createGatewayServer({
     logger,
     verifier: createKeyVerifier(keys),
     limiter,
     mcp: sessions.handler,
+    transfer: features.routes,
     allowedHosts: config.allowedHosts,
     trustProxy: config.trustProxy,
   });
