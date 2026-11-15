@@ -42,8 +42,8 @@ written as UNVERIFIED.
 
 ## 7. Documentation
 
-- [ ] 7.1 README: a section on giving the agent a file (`request_upload`, then `curl`, then `open_binary` with the returned path) and on reading large results; the five settings; a sample instruction for the agent; why `PUBLIC_BASE_URL` matters behind a tunnel
-- [ ] 7.2 `docs/SECURITY.md`: the two unauthenticated routes, what a ticket URL can and cannot do, the limits, the shared inbox; `docs/CLOUDFLARE.md`: `PUBLIC_BASE_URL`, a bypass for `/upload/*` and `/download/*` if Access is used (UNVERIFIED how), the request-body limit (UNVERIFIED), and a test the maintainer can run through the tunnel
+- [x] 7.1 README: a section on giving the agent a file (`request_upload`, then `curl`, then `open_binary` with the returned path) and on reading large results; the five settings; a sample instruction for the agent; why `PUBLIC_BASE_URL` matters behind a tunnel
+- [x] 7.2 `docs/SECURITY.md`: the two unauthenticated routes, what a ticket URL can and cannot do, the limits, the shared inbox; `docs/CLOUDFLARE.md`: `PUBLIC_BASE_URL`, a bypass for `/upload/*` and `/download/*` if Access is used (UNVERIFIED how), the request-body limit (UNVERIFIED), and a test the maintainer can run through the tunnel
 - [ ] 7.3 `docs/DESIGN.md`: the evidence of 1.x and 8.x, the overnight connector findings (E6), and the choices that differ from `claude-files` and why
 
 ## 8. Verification

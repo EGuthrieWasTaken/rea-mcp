@@ -16,7 +16,7 @@ shell password. An authenticated client can:
   attach to things (a GDB, Rizin, Frida, ADB or browser session); this image has none of those engines, and the
   tools that need them fail with `capability_unavailable` (**Ran** for Rizin). `capture_process_scenario` needs
   nothing extra. The gateway relays REA's tools unfiltered by design, so it cannot withhold it.
-- **Read every file under `/samples`** and write wherever uid 99 can: `/work` and `/tmp` (**Ran**). `/samples`
+- **Read every file under `/samples`** and write wherever uid 99 can: `/work` and `/tmp` (**Ran**), including putting any file it likes in `/work/inbox` through an upload URL. `/samples`
   itself cannot be written when mounted read-only (**Ran**: "Read-only file system").
 - **Reach the network.** The container has outbound access by default; an HTTPS request from inside it to a
   public host succeeded (**Ran**).
@@ -60,6 +60,52 @@ not run files from `/samples` (several of the sample binaries are written to mis
   characters; `openssl rand -hex 32` makes one.
 - **The key travels in a header**, so serve the endpoint only over TLS (a tunnel or reverse proxy you run). The
   container speaks plain HTTP. A key typed on a command line stays in shell history.
+
+## The upload and download URLs
+
+The gateway has two routes that need **no API key**: `PUT` or `POST /upload/<id>/<secret>` and
+`GET /download/<id>/<secret>`. Whoever holds the URL can use it, once. That is how the agent's `curl` sends a file
+or fetches a result without the bytes passing through the model, and it is the one place the gateway accepts
+something other than the key. What stands between those routes and abuse:
+
+- **The secret.** 256 random bits from the operating system's generator, in the path (not a query string). The
+  gateway keeps only a SHA-256 digest of it and compares digests in constant time. An unknown id, a wrong secret and
+  a ticket of the other kind all get the same bare `404`, and each counts as a failed attempt against the source
+  address in the **same limiter as wrong API keys** (10 in 60 s, then `429`), so guessing is as hard as guessing the
+  key. A correct ticket never counts.
+- **Single use, short life.** A ticket works once (a second use is `409`) and expires after
+  `TRANSFER_TICKET_TTL_SEC` (900 s by default), and at most 100 are live at once. Tickets live in memory, so a
+  restart cancels them.
+- **A fixed target.** An upload ticket names one file name, validated when the ticket is issued (a single path
+  component: no `/` or `\`, no leading dot, no control or direction-changing characters, at most 200 bytes) and again
+  before the write. It can write only that one name in `/work/inbox`, never replace a symlink or a directory, and
+  never replace an existing file unless the agent asked for `overwrite`. A download ticket serves one stored result
+  of one session, never an arbitrary path.
+- **Bounded size.** The byte limit is enforced while the body streams, not only from `Content-Length`; a body that
+  stalls for 60 s is dropped; the inbox as a whole is capped by `INBOX_MAX_BYTES`, counting uploads in progress.
+  A file is written to a temporary name and appears under its own name only once complete and, if the agent gave
+  a hash, matching it. A failure removes the temporary file.
+- **The same host check and logging rules as `/mcp`.** `ALLOWED_HOSTS` applies to these routes. The log carries the
+  route label and the source address, never the path, the secret, the file name or any content.
+
+What a ticket URL does not protect against: **the URL is a bearer secret and it passes through the conversation**
+(the tool result that carries it, and the shell command that uses it). Anyone who sees it before it is used, or
+between issue and use, can use it for that one upload or download. Single use and the short default life are what
+limit that. Do not raise the lifetime without reason.
+
+Things to know about what arrives:
+
+- **Uploaded files are untrusted samples.** They are never executed by the gateway and are created without an
+  execute bit. REA analyzes them, and `capture_process_scenario` can still run what a client tells it to (see the
+  top of this document); an uploaded file is no more dangerous than one in `/samples`, but it **can be put there by
+  whoever can ask for a ticket, which means whoever holds the API key**.
+- **The inbox is shared** by every session and is never cleared by the gateway. A file one conversation uploads can
+  be opened by another. It sits in `<work-dir>/inbox` on the host: clear it from there.
+- **Stored results are analysis output from untrusted files**, and can contain text written to mislead an AI agent.
+  REA marks results as untrusted content and the gateway keeps that marking when it pages a result. They are
+  readable only by the session that made them and are deleted when it ends.
+- Through a **tunnel or proxy**, these routes are public on the internet at the same host name as `/mcp`, protected
+  only as described above. See [`CLOUDFLARE.md`](CLOUDFLARE.md) for Access and request-size notes.
 
 ## Hardening checklist
 

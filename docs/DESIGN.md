@@ -1653,3 +1653,35 @@ A client sent a 10-byte body at one byte per 400 ms (about 4 s) to a plain `node
 So setting `requestTimeout` to `0` removes the 300 s default whole-request limit (a 76 MiB upload over a slow uplink
 would exceed it) without removing the header limit. The gateway's own no-progress limit on the transfer routes
 replaces it there.
+
+### 18.3 The connector test that led to this change (**Reported**, with what the gateway log showed)
+
+On 2026-11-14/15 the maintainer ran an unattended agent session on the deployed container through the claude.ai
+custom connector and a Cloudflare Tunnel, from a test plan of numbered stages. These results are **Reported** by the
+maintainer and read from the gateway's own log on their host; the maintainer's report is not part of the repository.
+
+| Finding | Detail |
+|---|---|
+| Stages 0 to 5 passed | The connector listed REA's tools and the agent opened and analysed the small samples. |
+| Stage 6 timed out on the client | Opening and analysing a 76 MiB DLL: the client gave up about **183 s** into the call. The gateway log showed the call still running. |
+| The tunnel was not the limit | Requests of about 170 s and about 300 s returned `200` through the same tunnel, so the cut-off is the client's. |
+| A result was too big | A **58,842-character** `objdump` result exceeded the client's output cap. |
+
+What this change does about each: the first row is not addressed (a longer or smaller call is a separate change:
+checkpoints on, progress heartbeats, or a start-and-poll pattern); the last is the oversized-result handling of
+section 18.1 and the `result-paging` spec. The client's own limits (an output cap that Claude Code is believed to
+default to 25,000 tokens, and the call timeout) are **UNVERIFIED** here.
+
+### 18.4 Where this differs from `claude-files`, which it follows
+
+The upload and ranged-read designs come from the maintainer's `claude-files` project (read in full on 2026-11-15; no
+code is copied or depended on). Differences, and why:
+
+| `claude-files` | here | Why |
+|---|---|---|
+| Keeps the ticket secret | Keeps only its SHA-256 | A memory dump of the process then yields no usable URL |
+| Reads whole files into memory, counts characters | Positioned reads, counts bytes, never splits a character | A stored result can be tens of megabytes |
+| Upload target is a path under a vault, `overwrite` defaults to true | A file name in one flat inbox, `overwrite` defaults to **false** | A file name is how the agent refers to a binary; replacing it under a running analysis would confuse the session |
+| JSON body for read results | Metadata item, then the raw slice | Text that is itself JSON would be escaped, and about a tenth longer, for nothing |
+| One FastAPI process with a rate limit on its own routes | The existing failed-attempt limiter, shared with `/mcp` | One budget for everything that can be guessed |
+| Tools are the server's own | Tools are added to a relayed REA list, and REA's `outputSchema` is removed | REA's results must stay valid for clients that validate (18.1) |
