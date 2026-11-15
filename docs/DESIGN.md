@@ -1,8 +1,9 @@
 # rea-mcp design (long form)
 
 > **Status (2026-11-14).** The gateway, image, template, icon and their checks are built and verified on an
-> unRAID 7.3.4 host (sections 8 to 11). The CI jobs and the GHCR workflow are written but have not run on
-> GitHub (section 12), and the end-to-end checks with real clients and a tunnel are still to do (section 14).
+> unRAID 7.3.4 host (sections 8 to 11). The CI jobs ran on the first pull request, where `image` passed and
+> `template` exposed a bug that is fixed (section 12); the GHCR workflow is written and disabled; and the
+> end-to-end checks with real clients and a tunnel are still to do (section 14).
 > Section 13 is the current list of what is **UNVERIFIED**. The decisions that shape the specs live in
 > [`openspec/changes/bootstrap-rea-mcp-gateway/design.md`](../openspec/changes/bootstrap-rea-mcp-gateway/design.md);
 > this document records the evidence behind them. User-facing guidance is in the
@@ -1393,14 +1394,14 @@ container was known to be running, so an early exit gave no message; and `docker
 
 ## 12. CI jobs written ahead of their first run (tasks 6.2 to 6.4)
 
-Written on 2026-11-14 but **not yet run on GitHub**: a workflow can only be verified by a pull request
-run, and pushing needs the maintainer's go-ahead. Tasks 6.2, 6.3 and 6.4 therefore stay unticked. What was
-checked locally, and what remains:
+Written on 2026-11-14 and checked locally first; a workflow is only verified by a pull request run, which the
+maintainer then allowed (pull request 5; results below the table). Task 6.3 is ticked on that run, while 6.2 and 6.4
+stay unticked. What was checked locally, and what remained:
 
 | Piece | Checked here (**Ran**) | Still to do |
 |---|---|---|
 | `template` job in `ci.yml` | `scripts/check_template.py` passes and its self-test rejects all 31 seeded violations (section 10.8) | Run on a pull request; seed one violation on a scratch branch and see the job fail |
-| `image` job in `ci.yml` | The same Docker commands ran on this host: the build (section 11.1), `scripts/check_hash_pins.sh` (an altered Ghidra or JDK hash fails the build on the checksum and leaves no image) and `scripts/smoke_test.sh` (section 11.7) | Run on a runner |
+| `image` job in `ci.yml` | The same Docker commands ran on this host: the build (section 11.1), `scripts/check_hash_pins.sh` (an altered Ghidra or JDK hash fails the build on the checksum and leaves no image) and `scripts/smoke_test.sh` (section 11.7) | Done: passed on a runner (below) |
 | `gate` | Parsed with the `yaml` package: every job other than `gate` is in its `needs` | Seeing it fail when a job fails |
 | `.github/workflows/publish.yml` | Parses; has no automatic trigger and a job switched off with `if: false`; empty top-level `permissions`, job-level `contents: read` and `packages: write`; no third-party action. `scripts/image_tags.sh` gives `latest` and `sha-<12>` for `main`, `X.Y.Z` and `sha-<12>` for a `vX.Y.Z` tag, and refuses every other ref and malformed input | Not to be enabled or run until the maintainer approves (task 6.4) |
 
@@ -1415,6 +1416,22 @@ Also run once on a clean copy of this branch in a Node 24.22.3 container (as roo
 `npm run typecheck` clean, and `npm test` gave 358 passed and 1 skipped. The skip is
 `it.skipIf(process.getuid?.() === 0)` in `test/keys.test.ts`, which a root run skips.
 
+### First run on GitHub (pull request 5, run 43664812125)
+
+- **`image` passed on a runner in 2 min 3 s**: the build, `scripts/check_hash_pins.sh` (an altered Ghidra hash and an
+  altered JDK hash each failed the build on the checksum and left no image) and all twelve `scripts/smoke_test.sh`
+  checks. This is the "verify on a branch run" of task 6.3, which is therefore ticked.
+- **`template` failed, and so did `gate`.** The real check passed (`template: ok`) but the self-test crashed with an
+  uncaught `ValueError` on its `WebUI` mutation, which puts unRAID's `[IP]` placeholder in a URL
+  (`http://[IP]:[PORT:8080]/`). Python on the runner rejects a bracketed host that is not an IP address;
+  the 3.9 on the maintainer's host does not. Reproduced with Python 3.13 and fixed by parsing every URL through one helper
+  that treats an unparsable URL as a violation. The checker and its 31-case self-test now pass under Python
+  3.9 and 3.13 (**Ran**). A lesson for the checker: the self-test found the bug only because it exercises odd
+  inputs, and only a runner with a different Python could show it.
+- The other six jobs (`lint`, `typecheck`, `test`, `secrets`, `hygiene`, `openspec`) passed.
+- Task 6.2 stays unticked until `template` passes on the pull request and a seeded violation has been tried on a
+  scratch branch, which needs a second push.
+
 ## 13. What is still UNVERIFIED (current)
 
 As of 2026-11-14. "Closed" items are in the list of section 4.2, with their evidence; this table is only what is open.
@@ -1422,7 +1439,7 @@ An item is **UNVERIFIED** until a primary source or a run shows it.
 
 | Item | Why open | What would close it |
 |---|---|---|
-| The CI jobs (`template`, `image`, `gate`) and the branch ruleset on GitHub | Written and run locally, never on a runner (section 12); the ruleset import (task 6.0a) is the maintainer's | A pull request; a seeded violation on a scratch branch; the maintainer importing the ruleset |
+| `template` and `gate` on GitHub, a seeded violation on a scratch branch, and the branch ruleset | `image` and six other jobs passed on pull request 5; `template` failed on a bug since fixed (section 12); the ruleset import (task 6.0a) is the maintainer's | The next pull request run; a seeded violation on a scratch branch; the maintainer importing the ruleset |
 | Dependabot's `docker` entry proposing digest updates and ignoring Node majors | Configured, never run | The first Dependabot run after a push |
 | GHCR publishing | Written and disabled (task 6.4); needs the maintainer's approval; the package must then be set public | Maintainer approval, then a first publish |
 | Claude Code and the claude.ai connector against this server, including whether each conversation gets its own session and whether `DELETE /mcp` or `close_binary` is sent on exit (item 18) | Needs real clients (task 8.3). Anthropic's page says a connector accepts fixed request headers (**Docs**), which is not the same as trying it | Task 8.3 (section 14) |

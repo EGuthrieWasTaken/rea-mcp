@@ -65,6 +65,17 @@ ALLOWED_URL_HOSTS = {"github.com", "raw.githubusercontent.com", "ghcr.io"}
 APPDATA_DEFAULT = "/mnt/user/appdata/rea-mcp"
 
 
+# --- URLs ----------------------------------------------------------------------------------------------
+def url_parts(url: str) -> tuple[str | None, str]:
+    """(host, path) of `url`, or (None, "") if it cannot be parsed. Newer Pythons raise ValueError on, for
+    example, a bracketed host that is not an IP address (unRAID's `[IP]` placeholder), so never let that escape."""
+    try:
+        parsed = urlparse(url)
+        return parsed.hostname, parsed.path
+    except ValueError:
+        return None, ""
+
+
 # --- the gateway's defaults ----------------------------------------------------------------------------
 def gateway_defaults(root: Path) -> dict[str, str]:
     """DEFAULT_ENV from src/config.ts, as {name: default string}."""
@@ -163,11 +174,11 @@ def check(root: Path, template: Path | None = None) -> list[str]:
             bad(f"<ExtraParams> must contain {flag}")
     if text("WebUI") != "":
         bad("the template must not define a WebUI: the container is API-only")
-    if urlparse(text("TemplateURL")).path.rsplit("/main/", 1)[-1] != "unraid/rea-mcp.xml":
+    if url_parts(text("TemplateURL"))[1].rsplit("/main/", 1)[-1] != "unraid/rea-mcp.xml":
         bad("<TemplateURL> must be the raw URL of unraid/rea-mcp.xml on main")
 
     # --- the icon the template points at must be the one in the repository
-    icon_path = urlparse(text("Icon")).path
+    icon_path = url_parts(text("Icon"))[1]
     if not icon_path.endswith("/main/" + ICON_REL.as_posix()):
         bad(f"<Icon> must be the raw URL of {ICON_REL.as_posix()} on main")
     errors.extend(png_errors(root / ICON_REL))
@@ -273,8 +284,9 @@ def check(root: Path, template: Path | None = None) -> list[str]:
         if cfg.get("Mask") == "true" and (cfg.get("Default") or value(cfg)):
             bad(f"{cfg.get('Name')!r} is masked, so it must have an empty default and value")
     for url in re.findall(r"https?://[^\s\"'<>]+", whole):
-        if urlparse(url).hostname not in ALLOWED_URL_HOSTS:
-            bad(f"the template links to {urlparse(url).hostname}; only public GitHub and GHCR locations are allowed")
+        host = url_parts(url)[0]
+        if host not in ALLOWED_URL_HOSTS:
+            bad(f"the template links to {host or repr(url)}; only public GitHub and GHCR locations are allowed")
     for path in re.findall(r"/mnt/[^\s\"'<>,]*", whole):
         if path != APPDATA_DEFAULT:
             bad(f"the template holds the host path {path!r}; only {APPDATA_DEFAULT} is allowed")

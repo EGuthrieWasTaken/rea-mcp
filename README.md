@@ -4,8 +4,9 @@ REA + Ghidra as a remote MCP server, packaged for unRAID.
 
 > **Status.** The gateway, the Docker image and the unRAID template are built and were
 > verified on an unRAID 7.3.4 host (evidence: [`docs/DESIGN.md`](docs/DESIGN.md), section 11).
-> **Nothing is published yet**: there is no `ghcr.io` package, and the CI jobs that build the image
-> have not run on GitHub. Until a package exists, build the image yourself (see
+> **Nothing is published yet**: there is no `ghcr.io` package (the publish workflow is written and disabled).
+> The CI job that builds and smoke-tests the image has passed on a pull request. Until a package exists, build
+> the image yourself (see
 > [Quick start](#quick-start)). The claude.ai connector and a Cloudflare Tunnel have not been tried end to end.
 
 A single Docker container that exposes [REA](https://github.com/morluto/rea) ("Reverse Engineer
