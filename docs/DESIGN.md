@@ -1770,3 +1770,26 @@ had a test or a run above. The differences found, and what was done (the maintai
 
 Not done, and left for the maintainer (task 9.3): an upload through the Cloudflare Tunnel, which decides the assumptions about
 the request-body limit, Cloudflare Access and the agent sandbox's reach (design, "Unverified assumptions" 5 to 7).
+
+### 18.8 Through the maintainer's Cloudflare Tunnel (task 9.3) (**Ran**)
+
+Run on 2026-11-15, from the unRAID host, against the maintainer's own container (recreated from the merged image with
+`PUBLIC_BASE_URL`, `TRUST_PROXY=true` and `ALLOWED_HOSTS` set to its public host name) over HTTPS through Cloudflare and the
+tunnel. The key was read from the container's environment and passed to `curl` in a `0600` file, never on a command line;
+every test file was removed afterwards.
+
+| Check | Result |
+|---|---|
+| `GET /healthz` | `200 {"status":"ok"}` (no Cloudflare Access in front of this host name) |
+| `initialize` and `tools/list` with the key and the public `Host` | accepted; 259 tools, the gateway's four among them, none with an `outputSchema` (so `ALLOWED_HOSTS` and the forwarded `Host` agree) |
+| `request_upload` | the URL begins with the public `https` address; `url_source` is `PUBLIC_BASE_URL` |
+| Uploads of 1 MiB, 90 MB, 99 MB and 100 MB | `200`; the size and SHA-256 returned match; the same URL used again is `409` |
+| **Upload of exactly 104,857,600 bytes (100 MiB)** | `200` in 6 s |
+| **Upload of 104,857,601 bytes, and of 105 MB** | `413` with an HTML `Payload Too Large` page: **not from the gateway**, whose answer is JSON and whose log recorded 6 `200` and 1 `409` for `/upload` and no `413` |
+| A real ELF uploaded and analysed through the tunnel | REA opened it; `list_strings` came back as a 2,639-character stub; `read_result` paged it; `request_download` and its `curl` command fetched the whole result and its SHA-256 matched the one promised |
+| `http://` to the same host | `301` to `https://`; `curl` does not follow it unless told to, so an upload URL starting `http://` fails (this is why `PUBLIC_BASE_URL` matters) |
+
+What this settles: the request-body limit through this tunnel is **100 MiB** (design assumption 5; it matches Cloudflare's
+published figure for the Free and Pro plans, though which plan this is was not checked), so `MAX_UPLOAD_BYTES` was set to
+`104857600` on this container. Not settled: how to write a Cloudflare Access bypass (none was needed), and whether the
+claude.ai code-execution sandbox can reach this host name.

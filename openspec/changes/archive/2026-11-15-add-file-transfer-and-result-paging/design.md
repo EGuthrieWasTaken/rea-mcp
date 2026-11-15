@@ -270,8 +270,8 @@ else `http://` and the request's `Host`. A `Host` that is not a valid host name 
 refused. The request's headers are read when the session's latest authenticated request
 arrives and are used only to build this string, never logged. `url_source` says which
 rule applied, so a wrong scheme is visible: behind a Cloudflare Tunnel with neither
-`PUBLIC_BASE_URL` nor `TRUST_PROXY` the URL would be `http://`, which Cloudflare
-redirects, and a redirected `PUT` loses its body. The README says to set `PUBLIC_BASE_URL`.
+`PUBLIC_BASE_URL` nor `TRUST_PROXY` the URL would be `http://`, which Cloudflare answers with
+a `301` to `https` that `curl` does not follow (checked 2026-11-15). The README says to set `PUBLIC_BASE_URL`.
 
 ### D10. A transfer counts as activity
 
@@ -372,15 +372,15 @@ Collected 2026-11-15 against the published image `ghcr.io/eguthriewastaken/rea-m
    Removing the schemas is safe either way.
 4. ~~Node 24 treats `requestTimeout = 0` as no whole-request limit while `headersTimeout`
    still applies.~~ **Verified 2026-11-15 on Node 24.22.3 (`docs/DESIGN.md` 18.2).**
-5. Cloudflare's request-body limit through a proxied hostname, believed to be 100 MB on
-   the Free and Pro plans. Not checked. `MAX_UPLOAD_BYTES` can exceed it; the symptom
-   would be a Cloudflare-generated `413` before the request reaches the gateway.
+5. ~~Cloudflare's request-body limit through a proxied hostname, believed to be 100 MB on the Free and Pro plans.~~
+   **Verified 2026-11-15 on the maintainer's tunnel: exactly 100 MiB (104,857,600 bytes) passes, one byte more is refused
+   by Cloudflare with an HTML `413` (`docs/DESIGN.md` 18.8).** Which plan it is was not checked.
 6. Cloudflare Access, if used on the hostname, needs a bypass for `/upload/*` and
-   `/download/*`, or `curl` receives a login redirect. How to write that is not verified.
-7. The agent's environment can reach the public hostname with `curl`. A local Claude
-   Code session can. The claude.ai code-execution sandbox has an egress allowlist
-   (stated in `claude-files`'s docs for its own host); whether this host needs adding is
-   not verified.
+   `/download/*`, or `curl` receives a login redirect. **Not tested: no Access application covers the maintainer's host
+   name, so uploads worked with no bypass.** How to write the bypass is not verified.
+7. The agent's environment can reach the public hostname with `curl`. A `curl` on the unRAID host did (**Ran**), and a local
+   Claude Code session can. The claude.ai code-execution sandbox has an egress allowlist (stated in `claude-files`'s
+   docs for its own host); whether this host needs adding is not verified.
 8. The agent's `curl` supports `--fail-with-body` (curl 7.76 or newer).
 9. Whether Ghidra checkpoints are keyed by a file's content or its path. If by path,
    replacing an inbox file under the same name could confuse a later open; `overwrite`
