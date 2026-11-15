@@ -113,7 +113,7 @@ variable. A variable set to nothing counts as unset.
 | `MAX_SESSIONS` | `4` | Open sessions at once, one REA and one Ghidra process each. Over the limit: `503` with `Retry-After`, and nothing is evicted |
 | `SESSION_IDLE_TIMEOUT_SEC` | `300` | A session with no request and no call in flight for this long is ended. **Read [Tell the agent to close what it opens](#tell-the-agent-to-close-what-it-opens) before leaving the default** |
 | `TRUST_PROXY` | `false` | `true` only behind a trusted proxy or tunnel: the client address then comes from `CF-Connecting-IP` or `X-Forwarded-For` |
-| `ALLOWED_HOSTS` | empty | Comma-separated `Host` names accepted on `/mcp` (case-insensitive, port ignored). Empty accepts any. `/healthz` is exempt |
+| `ALLOWED_HOSTS` | empty | Comma-separated `Host` names accepted on `/mcp` and on the upload and download URLs (case-insensitive, port ignored). Empty accepts any. `/healthz` is exempt |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. Logs never contain request headers or keys |
 | `PUBLIC_BASE_URL` | empty | The address the agent's `curl` uses to reach the container, for upload and download URLs: `https://<host>`, nothing after the host. **Set it behind a tunnel or proxy.** See [Giving the agent a file](#giving-the-agent-a-file-and-reading-large-results) |
 | `MAX_UPLOAD_BYTES` | `268435456` (256 MiB) | Largest single upload. A proxy in front may allow less |
