@@ -24,6 +24,10 @@ export interface LogFields {
   exitCode?: number | null;
   signal?: string | null;
   count?: number;
+  /** A transfer ticket's public id (never its secret), for events about an upload or download. */
+  ticket?: string;
+  /** A size in bytes. */
+  bytes?: number;
   /** For lines captured from a child process. */
   stream?: "stdout" | "stderr";
   line?: string;
@@ -43,6 +47,8 @@ const ALLOWED_FIELDS = [
   "exitCode",
   "signal",
   "count",
+  "ticket",
+  "bytes",
   "stream",
   "line",
 ] as const satisfies readonly (keyof LogFields)[];
