@@ -41,7 +41,7 @@ describe("fake REA: the MCP surface", () => {
     expect(init.result).toMatchObject({ protocolVersion: "2025-06-18", serverInfo: { name: "fake-rea" } });
     const { reply } = rea.request("tools/list");
     const names = ((await reply).result?.tools as { name: string }[]).map((tool) => tool.name);
-    expect(names).toEqual(["echo", "slow", "crash", "env", "cwd", "pid", "grandchild", "log", "stats"]);
+    expect(names).toEqual(["echo", "slow", "crash", "env", "cwd", "pid", "grandchild", "log", "stats", "big"]);
   });
 
   it("echoes text, reports its pid, and answers ping", async () => {
