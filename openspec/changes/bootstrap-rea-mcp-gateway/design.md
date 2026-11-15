@@ -344,10 +344,12 @@ fixed request header (read, not tried).
 Still **UNVERIFIED**:
 
 - Dependabot proposing a new digest when the tag moves and skipping a new Node major (its first run found nothing
-  to update); and GHCR publishing (written, disabled pending the maintainer's approval). The CI jobs have run on
+  to update); and GHCR publishing (enabled with the maintainer's approval, first run pending). The CI jobs have run on
   GitHub, including the seeded-violation checks of task 6.2.
-- Claude Code and the claude.ai connector against this server: separate MCP session per conversation, and
-  whether `DELETE /mcp` or `close_binary` is sent on exit (task 8.3).
+- The claude.ai connector and interactive Claude Code against this server. Claude Code in `-p` mode was run end to
+  end (`docs/DESIGN.md` section 14): each conversation gets its own session, the client never sends `DELETE /mcp`
+  and the agent calls `close_binary` only when told, so finished conversations' sessions linger until the idle
+  timeout.
 - A Cloudflare Tunnel in front of it: the limits for a stream that has started and then goes quiet, and what
   happens to a call whose connection a proxy cut. (Cloudflare documents a 125 s default for a first response.)
 - Checkpointing and analysis on a Program much larger than the 770 KB sample, and whether the 30 s grace

@@ -77,7 +77,7 @@ Ask the maintainer before pushing or publishing to GHCR.
 
 - [x] 8.1 Run the scripted secret check over the working tree and full history (gitleaks plus a grep pass for key-shaped strings) and confirm zero findings
 - [x] 8.2 Confirm the only tracked binary is `unraid/icon.png` and nothing under `samples/` or `work/` is tracked
-- [ ] 8.3 End-to-end check from Claude Code against a locally running container: `claude mcp add --transport http rea http://localhost:8080/mcp --header "x-api-key: <key>"`, then list tools and run one analysis on a permitted sample; also check whether separate conversations get separate MCP sessions, whether the client sends `DELETE /mcp` or calls `close_binary` on exit, and, with checkpointing enabled, the reconnect-on-the-same-binary case
+- [x] 8.3 End-to-end check from Claude Code against a locally running container: `claude mcp add --transport http rea http://localhost:8080/mcp --header "x-api-key: <key>"`, then list tools and run one analysis on a permitted sample; also check whether separate conversations get separate MCP sessions, whether the client sends `DELETE /mcp` or calls `close_binary` on exit, and, with checkpointing enabled, the reconnect-on-the-same-binary case
 - [ ] 8.4 Run `openspec validate bootstrap-rea-mcp-gateway --strict` and reconcile specs with what was built
 - [ ] 8.5 Report to the maintainer the final list of open questions, assumptions, and any item still marked UNVERIFIED
 
