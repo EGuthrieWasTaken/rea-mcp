@@ -58,7 +58,7 @@ Ask the maintainer before pushing or publishing to GHCR.
 ## 6. CI
 
 - [x] 6.0 Add the CI skeleton ahead of the code: `ci.yml` with `secrets` (gitleaks, full history), `hygiene` (`scripts/check_hygiene.sh`), `openspec` (strict validation) and the `gate` job, Dependabot for actions, a PR template, and the importable ruleset `.github/rulesets/main.json`; verify each job passes on a pull request
-- [ ] 6.0a Maintainer imports `.github/rulesets/main.json` under Settings → Rules → Rulesets and confirms a direct push to `main` is rejected
+- [x] 6.0a Maintainer imports `.github/rulesets/main.json` under Settings → Rules → Rulesets and confirms a direct push to `main` is rejected
 - [x] 6.1 Add `.github/workflows/ci.yml` jobs for lint, typecheck, and tests on Node 24; add each to `gate`'s `needs`; verify they pass on a branch run
 - [x] 6.2 Add the gitleaks job scanning full history (`fetch-depth: 0`) and the template XML check job; verify both pass and that each fails on a seeded violation in a scratch branch
 - [x] 6.3 Add the image build job and run the smoke-test script from 4.7 against the built image; verify on a branch run

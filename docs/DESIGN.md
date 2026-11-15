@@ -1452,7 +1452,8 @@ Also run once on a clean copy of this branch in a Node 24.22.3 container (as roo
   head commit reachable through its `refs/pull/6/head` ref, so the seeded string remains visible there; it is
   random and worthless, and it is not in `main`, whose history a squash merge never carries it into.
 - **The branch ruleset.** The repository's rulesets, read through the API, are now the single imported `main`
-  ruleset. Task 6.0a also asks the maintainer to confirm that a direct push to `main` is rejected, which was not tried here.
+  ruleset. The maintainer imported it and confirmed that a direct push to `main` is rejected (task 6.0a, ticked on
+  that confirmation; it was not tried here).
 - **Dependabot.** Its first runs, on 2026-11-15, succeeded for both the `github_actions` and the `docker` entries.
   The `docker` run read the Dockerfile's `FROM` line, reported "Latest version is 24-bookworm-slim" and "No update
   needed for node 24-bookworm-slim", and opened no pull request, which is right because the digest pinned on
@@ -1466,7 +1467,6 @@ An item is **UNVERIFIED** until a primary source or a run shows it.
 
 | Item | Why open | What would close it |
 |---|---|---|
-| That a direct push to `main` is rejected by the imported ruleset | The ruleset is in place (read through the API); the confirmation is the maintainer's (task 6.0a) | The maintainer trying a direct push |
 | Dependabot's `docker` entry proposing a new digest when the tag moves, and skipping a new Node major | It ran and found `node 24-bookworm-slim` current (section 12); nothing has changed since | The tag moving, or a new Node major appearing |
 | GHCR publishing | Written and disabled (task 6.4); needs the maintainer's approval; the package must then be set public | Maintainer approval, then a first publish |
 | Claude Code and the claude.ai connector against this server, including whether each conversation gets its own session and whether `DELETE /mcp` or `close_binary` is sent on exit (item 18) | Needs real clients (task 8.3). Anthropic's page says a connector accepts fixed request headers (**Docs**), which is not the same as trying it | Task 8.3 (section 14) |

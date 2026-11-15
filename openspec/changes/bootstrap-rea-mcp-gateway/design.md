@@ -343,8 +343,7 @@ fixed request header (read, not tried).
 
 Still **UNVERIFIED**:
 
-- That a direct push to `main` is rejected (the ruleset is imported; the maintainer confirms, task 6.0a);
-  Dependabot proposing a new digest when the tag moves and skipping a new Node major (its first run found nothing
+- Dependabot proposing a new digest when the tag moves and skipping a new Node major (its first run found nothing
   to update); and GHCR publishing (written, disabled pending the maintainer's approval). The CI jobs have run on
   GitHub, including the seeded-violation checks of task 6.2.
 - Claude Code and the claude.ai connector against this server: separate MCP session per conversation, and
