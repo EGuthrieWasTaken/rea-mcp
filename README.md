@@ -4,11 +4,11 @@ REA + Ghidra as a remote MCP server, packaged for unRAID.
 
 > **Status.** The gateway, the Docker image and the unRAID template are built and were
 > verified on an unRAID 7.3.4 host (evidence: [`docs/DESIGN.md`](docs/DESIGN.md), section 11).
-> **Publishing is enabled** (a push to `main` or a `vX.Y.Z` tag publishes `ghcr.io/eguthriewastaken/rea-mcp`), but
-> the first run has not happened yet, and GitHub makes a new package private until its owner sets it public. If
-> `docker pull ghcr.io/eguthriewastaken/rea-mcp:latest` does not work for you, build the image yourself (see
-> [Quick start](#quick-start)). Claude Code has been run end to end against the container; the claude.ai connector
-> and a Cloudflare Tunnel have not been tried.
+> **The image is published**: a push to `main` or a `vX.Y.Z` tag publishes `ghcr.io/eguthriewastaken/rea-mcp`
+> (`latest` and `sha-<12>` for `main`, `X.Y.Z` and `sha-<12>` for a tag). `docker pull
+> ghcr.io/eguthriewastaken/rea-mcp:latest` works without credentials, and the published image passes the smoke test
+> (see [`docs/DESIGN.md`](docs/DESIGN.md), section 12). Claude Code has been run end to end against the container;
+> the claude.ai connector and a Cloudflare Tunnel have not been tried.
 
 A single Docker container that exposes [REA](https://github.com/morluto/rea) ("Reverse Engineer
 Anything", npm package `rea-agents`) and its analysis engines (Ghidra, tshark, objdump) as a **remote MCP
@@ -38,8 +38,10 @@ commands are not available (REA answers those with a `capability_unavailable` er
 You need Docker and a folder of files you are permitted to analyze. The image is `linux/amd64` only.
 
 ```bash
-# Build it (no published image exists yet). Downloads Ghidra and a JDK, each checked against a pinned SHA-256.
-docker build -f docker/Dockerfile -t rea-mcp:local .
+# Get the image: pull the published one, or build it yourself (it downloads Ghidra and a JDK, each checked
+# against a pinned SHA-256).
+docker pull ghcr.io/eguthriewastaken/rea-mcp:latest
+#   or: docker build -f docker/Dockerfile -t rea-mcp:local .   (then use rea-mcp:local below)
 
 # A key of at least 32 characters. Keep it: every client needs it. There is no default.
 export REA_MCP_API_KEY="$(openssl rand -hex 32)"
@@ -49,7 +51,7 @@ docker run -d --name rea-mcp \
   -e REA_MCP_API_KEY -p 8080:8080 \
   -v <samples-dir>:/samples:ro \
   -v <work-dir>:/work \
-  rea-mcp:local
+  ghcr.io/eguthriewastaken/rea-mcp:latest
 ```
 
 - `<work-dir>` must be writable by uid 99, gid 100 (the user the container runs as). If it is not, the

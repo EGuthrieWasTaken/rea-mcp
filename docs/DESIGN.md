@@ -2,8 +2,8 @@
 
 > **Status (2026-11-15).** The gateway, image, template, icon and their checks are built and verified on an
 > unRAID 7.3.4 host (sections 8 to 11). The CI jobs ran on the first pull request, where `image` passed and
-> `template` exposed a bug that is fixed (section 12); the GHCR workflow is enabled and its first run is still to come;
-> Claude Code has been run end to end against the container (section 14); and the claude.ai connector and a Cloudflare
+> `template` exposed a bug that is fixed (section 12); the image has been published to GHCR and an anonymous pull of it
+> passes the smoke test (section 12); Claude Code has been run end to end against the container (section 14); and the claude.ai connector and a Cloudflare
 > Tunnel are still to do.
 > Section 13 is the current list of what is **UNVERIFIED**. The decisions that shape the specs live in
 > [`openspec/changes/bootstrap-rea-mcp-gateway/design.md`](../openspec/changes/bootstrap-rea-mcp-gateway/design.md);
@@ -1404,15 +1404,15 @@ seeded-violation run of 2026-11-15 (below); 6.4 stays unticked. What was checked
 | `template` job in `ci.yml` | `scripts/check_template.py` passes and its self-test rejects all 31 seeded violations (section 10.8) | Done: passed on pull requests and on `main`, and failed on a seeded violation (below) |
 | `image` job in `ci.yml` | The same Docker commands ran on this host: the build (section 11.1), `scripts/check_hash_pins.sh` (an altered Ghidra or JDK hash fails the build on the checksum and leaves no image) and `scripts/smoke_test.sh` (section 11.7) | Done: passed on a runner (below) |
 | `gate` | Parsed with the `yaml` package: every job other than `gate` is in its `needs` | Seeing it fail when a job fails |
-| `.github/workflows/publish.yml` | Parses; triggers on a push to `main`, a `vX.Y.Z` tag and manually, with a guard so a fork does not publish; empty top-level `permissions`, job-level `contents: read` and `packages: write`; no third-party action. `scripts/image_tags.sh` gives `latest` and `sha-<12>` for `main`, `X.Y.Z` and `sha-<12>` for a `vX.Y.Z` tag, and refuses every other ref and malformed input. It was written disabled and **enabled on 2026-11-15 with the maintainer's approval** | Its first run, on the merge to `main`, is the first test of the login, the push and the package's creation; then the package must be made public. Task 6.4 is ticked after that run succeeds |
+| `.github/workflows/publish.yml` | Parses; triggers on a push to `main`, a `vX.Y.Z` tag and manually, with a guard so a fork does not publish; empty top-level `permissions`, job-level `contents: read` and `packages: write`; no third-party action. `scripts/image_tags.sh` gives `latest` and `sha-<12>` for `main`, `X.Y.Z` and `sha-<12>` for a `vX.Y.Z` tag, and refuses every other ref and malformed input. It was written disabled and **enabled on 2026-11-15 with the maintainer's approval** | Done: its first run succeeded (below), so task 6.4 is ticked |
 | `.github/workflows/release.yml` (task 6.5, optional; added 2026-11-15) | Parses; triggers only on a `vX.Y.Z` tag; empty top-level `permissions`, job-level `contents: write`; no checkout and no third-party action; a guard against forks. Its script, run locally with `gh` stubbed, builds `gh release create vX.Y.Z --verify-tag --generate-notes` with a line naming `ghcr.io/eguthriewastaken/rea-mcp:X.Y.Z`, and refuses `v1.2`, `v1.2.3-rc1` and a branch name; the flags were checked against `gh release create --help` | Its first run is on the first `vX.Y.Z` tag. Task 6.5 is ticked after that run succeeds |
 
 Design choices: the new jobs use the runner's own `docker` and `python3` and so add no third-party action
 to pin and no binary to hash-verify. The template job does not call `xmllint` (design D11 mentions it): the
 checker parses the XML strictly and its self-test includes a malformed file, so the runner needs no extra
 package. The tag policy in `scripts/image_tags.sh` is a proposal for open question 4 of the change's
-`design.md`. A new GHCR package starts private, so after the first publish the maintainer must make it public
-(decision of section 5.5) in GitHub's package settings.
+`design.md`. The package was expected to start private and need making public (decision of section 5.5); it came
+out public (below).
 
 Also run once on a clean copy of this branch in a Node 24.22.3 container (as root): `npm run lint` and
 `npm run typecheck` clean, and `npm test` gave 358 passed and 1 skipped. The skip is
@@ -1462,6 +1462,21 @@ Also run once on a clean copy of this branch in a Node 24.22.3 container (as roo
   2026-11-14 is current. Whether it proposes a new digest when the tag moves, and skips a new Node major as configured,
   cannot be seen until something changes.
 
+### The first publish (task 6.4, 2026-11-15)
+
+The merge of pull request 7 to `main` (commit `217c09a`) ran `publish.yml` (run 43684167112); every step succeeded:
+the image references, the build, the hash-pin check, the smoke test, the login with the workflow token and the push.
+Checked afterwards (**Ran**):
+
+- **The package.** `ghcr.io/eguthriewastaken/rea-mcp`, linked to this repository, visibility **public**, with the tags `latest`
+  and `sha-217c09a24a13`. A fresh package was expected to start private; it did not, and why was not looked into.
+- **Anonymous access.** An anonymous registry token fetched the manifest of `:latest` (HTTP 200), and the maintainer's host
+  pulled the image with an empty Docker configuration (no credentials) in 40 s.
+- **The published image itself.** `scripts/smoke_test.sh ghcr.io/eguthriewastaken/rea-mcp:latest` passed all twelve checks.
+  Its image id is `sha256:34902d21...`, 1,915,755,280 bytes, `linux/amd64`, user `99:100`, with the labels
+  `org.opencontainers.image.source` (this repository) and `org.opencontainers.image.licenses` (`GPL-3.0-only`).
+- The unRAID template's `Repository`, `ghcr.io/eguthriewastaken/rea-mcp:latest`, therefore resolves.
+
 ## 13. What is still UNVERIFIED (current)
 
 As of 2026-11-14. "Closed" items are in the list of section 4.2, with their evidence; this table is only what is open.
@@ -1471,7 +1486,6 @@ An item is **UNVERIFIED** until a primary source or a run shows it.
 |---|---|---|
 | Dependabot's `docker` entry proposing a new digest when the tag moves, and skipping a new Node major | It ran and found `node 24-bookworm-slim` current (section 12); nothing has changed since | The tag moving, or a new Node major appearing |
 | `release.yml` (task 6.5, optional) creating a GitHub Release on a `vX.Y.Z` tag | Written and checked locally with `gh` stubbed; never run: no version tag exists yet | The first `vX.Y.Z` tag, which also exercises the tag path of `publish.yml` |
-| GHCR publishing | Enabled with the maintainer's approval (task 6.4); never run: the first run is on the merge to `main`; the package must then be set public by the maintainer | The first publish run; then `docker pull` of the image anonymously |
 | The claude.ai connector against this server, and interactive Claude Code (whether they send `DELETE /mcp`, and whether each conversation gets its own session; the rest of item 18) | Claude Code in `-p` mode was run end to end (section 14): separate sessions, no `DELETE`, no `close_binary` unless told. Anthropic's page says a connector accepts fixed request headers (**Docs**), which is not the same as trying it | The maintainer's steps in section 14 |
 | A Cloudflare Tunnel in front of it: the idle and absolute limits for a stream that has started, and what happens to a call whose connection a proxy cut | Cloudflare documents a 125 s default Proxy Read Timeout for a first response (**Docs**); the rest is not documented on the pages read | The maintainer's tunnel steps in section 14, with a call longer than 125 s |
 | APK decompilation | No APK sample and no JADX in the image by design | Not planned |
