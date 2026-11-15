@@ -284,8 +284,8 @@ def check(root: Path, template: Path | None = None) -> list[str]:
         description = public_url.get("Description") or ""
         if not (re.search(r"upload", description) and re.search(r"download", description) and re.search(r"curl", description)):
             bad("the PUBLIC_BASE_URL description must say that it is the address curl uses for upload and download URLs")
-        if not re.search(r"proxy|tunnel", description, re.I):
-            bad("the PUBLIC_BASE_URL description must say to set it behind a TLS proxy or tunnel")
+        if not re.search(r"behind a TLS proxy", description):
+            bad("the PUBLIC_BASE_URL description must say to set it when the container is behind a TLS proxy")
         if not re.search(r"not a secret", description):
             bad("the PUBLIC_BASE_URL description must say it is not a secret")
 
@@ -340,7 +340,7 @@ def mutations() -> list[tuple[str, str, str, str]]:
         ("checkpointing on by default", t, 'Target="REA_GHIDRA_CHECKPOINT_DIR" Default=""', 'Target="REA_GHIDRA_CHECKPOINT_DIR" Default="/work/checkpoints"'),
         ("checkpoint description without /work/checkpoints", t, "Set to /work/checkpoints to keep", "Set to a folder to keep"),
         ("checkpoint description without the warning", t, "fail to open with Ghidra", "do not work"),
-        ("PUBLIC_BASE_URL description without the proxy advice", t, "Set it when the container is behind a TLS proxy such as a Cloudflare Tunnel;", "Set it if you like;"),
+        ("PUBLIC_BASE_URL description without the proxy advice", t, "Set it when the container is behind a TLS proxy such as a Cloudflare Tunnel;", "Set it on your own network;"),
         ("PUBLIC_BASE_URL description without saying it is not a secret", t, "It is a host name, not a secret.", "It is a host name."),
         ("a new variable's default differs from the gateway (template side)", t, 'Target="RESULT_INLINE_LIMIT_CHARS" Default="40000"', 'Target="RESULT_INLINE_LIMIT_CHARS" Default="50000"'),
         ("a link to another host", t, "https://github.com/EGuthrieWasTaken/rea-mcp</Project>", "https://example.invalid/rea-mcp</Project>"),
