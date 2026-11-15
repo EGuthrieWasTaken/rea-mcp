@@ -38,7 +38,7 @@ written as UNVERIFIED.
 
 ## 6. Template and packaging
 
-- [ ] 6.1 Add the five variables to `unraid/rea-mcp.xml` as advanced entries, with defaults equal to `DEFAULT_ENV` and a `PUBLIC_BASE_URL` description that says what it is for; verify `scripts/check_template.py` passes under Python 3.9 and 3.13 and fails when a default is changed
+- [x] 6.1 Add the five variables to `unraid/rea-mcp.xml` as advanced entries, with defaults equal to `DEFAULT_ENV` and a `PUBLIC_BASE_URL` description that says what it is for; verify `scripts/check_template.py` passes under Python 3.9 and 3.13 and fails when a default is changed
 
 ## 7. Documentation
 
