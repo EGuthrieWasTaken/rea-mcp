@@ -111,7 +111,7 @@ token, and SHALL forward client cancellation notifications to REA.
 ### Requirement: Environment-variable configuration
 The gateway SHALL be configured solely through environment variables with the
 following defaults: `PORT` = `8080`, `MAX_SESSIONS` = `4`,
-`SESSION_IDLE_TIMEOUT_SEC` = `900`, `TRUST_PROXY` = `false`, `ALLOWED_HOSTS` =
+`SESSION_IDLE_TIMEOUT_SEC` = `300`, `TRUST_PROXY` = `false`, `ALLOWED_HOSTS` =
 empty, `LOG_LEVEL` = `info`. A variable set to a value that cannot be parsed
 for its type SHALL cause the gateway to exit non-zero at startup, naming the
 variable.

@@ -108,7 +108,7 @@ variable. A variable set to nothing counts as unset.
 | `REA_MCP_API_KEYS` | none | Comma-separated keys, for rotation. All three sources are combined |
 | `PORT` | `8080` | Port the gateway listens on inside the container |
 | `MAX_SESSIONS` | `4` | Open sessions at once, one REA and one Ghidra process each. Over the limit: `503` with `Retry-After`, and nothing is evicted |
-| `SESSION_IDLE_TIMEOUT_SEC` | `900` | A session with no request and no call in flight for this long is ended. **Read [Tell the agent to close what it opens](#tell-the-agent-to-close-what-it-opens) before leaving the default** |
+| `SESSION_IDLE_TIMEOUT_SEC` | `300` | A session with no request and no call in flight for this long is ended. **Read [Tell the agent to close what it opens](#tell-the-agent-to-close-what-it-opens) before leaving the default** |
 | `TRUST_PROXY` | `false` | `true` only behind a trusted proxy or tunnel: the client address then comes from `CF-Connecting-IP` or `X-Forwarded-For` |
 | `ALLOWED_HOSTS` | empty | Comma-separated `Host` names accepted on `/mcp` (case-insensitive, port ignored). Empty accepts any. `/healthz` is exempt |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. Logs never contain request headers or keys |
@@ -179,14 +179,15 @@ claude.ai connector were not tested):
 - **It does not end its session when it finishes.** It sends no `DELETE /mcp`, and the agent calls `close_binary`
   only if you tell it to (it never did unprompted). The session, its Ghidra (about 1.2 GB) and its slot stay
   until `SESSION_IDLE_TIMEOUT_SEC` passes.
-- **So finished conversations use up `MAX_SESSIONS`.** At the defaults (4 sessions, 900 s), four conversations
-  within 15 minutes make the server answer `503` to the next one, which then has no `rea` tools; it works again once
+- **So finished conversations use up `MAX_SESSIONS`.** At the defaults (4 sessions, 300 s), four conversations
+  within five minutes make the server answer `503` to the next one, which then has no `rea` tools; it works again once
   an idle session is reaped. With checkpoints on, a new conversation on the same binary is refused ("another REA
   session owns this checkpoint") until the previous conversation's session is reaped or has called `close_binary`.
-- **A shorter timeout frees slots sooner, at a price.** A conversation that is quiet for longer than the timeout loses
-  its session; Claude Code reconnects by itself, but the new session has nothing open, so the agent must open the
-  binary again (it did, in the test) and unsaved edits are gone. With the idle timeout set to a few minutes and
-  `close_binary` in your instructions, both problems are small.
+- **The timeout trades slots against a quiet conversation's open binary.** The default is 300 s (it was 900 s until
+  this was seen). A conversation that is quiet for longer than the timeout loses its session; Claude Code reconnects
+  by itself, but the new session has nothing open, so the agent must open the binary again (it did, in the test) and
+  unsaved edits are gone. Lower it to free slots sooner; raise it (and `MAX_SESSIONS`, with RAM to match) if your
+  conversations pause for long. With `close_binary` in your instructions, the checkpoint lock-out is gone either way.
 
 ## Keeping analysis between sessions (checkpoints)
 

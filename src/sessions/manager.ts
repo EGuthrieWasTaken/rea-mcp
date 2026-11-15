@@ -40,7 +40,7 @@ export interface SessionManagerOptions {
   terminationGraceMs?: number;
   /** How long REA gets after SIGTERM before SIGKILL. Default 2 s. */
   termWaitMs?: number;
-  /** SESSION_IDLE_TIMEOUT_SEC in milliseconds. A session with no activity and nothing in flight this long is ended. Default 900 000. */
+  /** SESSION_IDLE_TIMEOUT_SEC in milliseconds. A session with no activity and nothing in flight this long is ended. Default 300 000. */
   idleTimeoutMs?: number;
   /** How often idle sessions are looked for. Default a tenth of the timeout, between 1 s and 30 s. */
   reapIntervalMs?: number;
@@ -135,7 +135,7 @@ export class SessionManager {
     this.options = {
       terminationGraceMs: options.terminationGraceMs ?? 5_000,
       termWaitMs: options.termWaitMs ?? TERM_WAIT_MS,
-      idleTimeoutMs: options.idleTimeoutMs ?? 900_000,
+      idleTimeoutMs: options.idleTimeoutMs ?? 300_000,
       reapIntervalMs: 0,
       maxSessions: options.maxSessions ?? 4,
       retryAfterSec: options.retryAfterSec ?? 30,
