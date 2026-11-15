@@ -21,6 +21,10 @@ describe("loadConfig defaults", () => {
       allowedHosts: [],
       logLevel: "info",
       workDir: "/work",
+      maxUploadBytes: 268_435_456,
+      inboxMaxBytes: 4_294_967_296,
+      transferTicketTtlSec: 900,
+      resultInlineLimitChars: 40_000,
     });
   });
 
@@ -44,6 +48,11 @@ describe("loadConfig overrides", () => {
         TRUST_PROXY: "true",
         ALLOWED_HOSTS: "rea.example",
         LOG_LEVEL: "debug",
+        PUBLIC_BASE_URL: "https://rea.example:8443",
+        MAX_UPLOAD_BYTES: "1048576",
+        INBOX_MAX_BYTES: "2097152",
+        TRANSFER_TICKET_TTL_SEC: "60",
+        RESULT_INLINE_LIMIT_CHARS: "5000",
       }),
     ).toEqual({
       port: 9000,
@@ -53,6 +62,11 @@ describe("loadConfig overrides", () => {
       allowedHosts: ["rea.example"],
       logLevel: "debug",
       workDir: "/work",
+      publicBaseUrl: "https://rea.example:8443",
+      maxUploadBytes: 1_048_576,
+      inboxMaxBytes: 2_097_152,
+      transferTicketTtlSec: 60,
+      resultInlineLimitChars: 5000,
     });
   });
 
@@ -63,6 +77,18 @@ describe("loadConfig overrides", () => {
     expect(loadConfig({ MAX_SESSIONS: "256" }).maxSessions).toBe(256);
     expect(loadConfig({ SESSION_IDLE_TIMEOUT_SEC: "1" }).sessionIdleTimeoutSec).toBe(1);
     expect(loadConfig({ SESSION_IDLE_TIMEOUT_SEC: "604800" }).sessionIdleTimeoutSec).toBe(604_800);
+    expect(loadConfig({ MAX_UPLOAD_BYTES: "1" }).maxUploadBytes).toBe(1);
+    expect(loadConfig({ MAX_UPLOAD_BYTES: String(2 ** 40) }).maxUploadBytes).toBe(2 ** 40);
+    expect(loadConfig({ INBOX_MAX_BYTES: "1" }).inboxMaxBytes).toBe(1);
+    expect(loadConfig({ INBOX_MAX_BYTES: String(2 ** 50) }).inboxMaxBytes).toBe(2 ** 50);
+    expect(loadConfig({ TRANSFER_TICKET_TTL_SEC: "30" }).transferTicketTtlSec).toBe(30);
+    expect(loadConfig({ TRANSFER_TICKET_TTL_SEC: "86400" }).transferTicketTtlSec).toBe(86_400);
+    expect(loadConfig({ RESULT_INLINE_LIMIT_CHARS: "2000" }).resultInlineLimitChars).toBe(2000);
+    expect(loadConfig({ RESULT_INLINE_LIMIT_CHARS: "10000000" }).resultInlineLimitChars).toBe(10_000_000);
+  });
+
+  it("turns result replacement off with RESULT_INLINE_LIMIT_CHARS=0", () => {
+    expect(loadConfig({ RESULT_INLINE_LIMIT_CHARS: "0" }).resultInlineLimitChars).toBe(0);
   });
 
   it("is case-insensitive for TRUST_PROXY and LOG_LEVEL", () => {
@@ -107,6 +133,24 @@ describe("loadConfig rejects unusable values, naming the variable", () => {
     ["TRUST_PROXY", "yes"],
     ["TRUST_PROXY", "1"],
     ["LOG_LEVEL", "loud"],
+    ["MAX_UPLOAD_BYTES", "0"],
+    ["MAX_UPLOAD_BYTES", String(2 ** 40 + 1)],
+    ["MAX_UPLOAD_BYTES", "256MiB"],
+    ["INBOX_MAX_BYTES", "0"],
+    ["INBOX_MAX_BYTES", "99999999999999999"],
+    ["TRANSFER_TICKET_TTL_SEC", "29"],
+    ["TRANSFER_TICKET_TTL_SEC", "86401"],
+    ["RESULT_INLINE_LIMIT_CHARS", "500"],
+    ["RESULT_INLINE_LIMIT_CHARS", "1999"],
+    ["RESULT_INLINE_LIMIT_CHARS", "10000001"],
+    ["RESULT_INLINE_LIMIT_CHARS", "-1"],
+    ["PUBLIC_BASE_URL", "ftp://rea.example"],
+    ["PUBLIC_BASE_URL", "rea.example"],
+    ["PUBLIC_BASE_URL", "https://rea.example/mcp"],
+    ["PUBLIC_BASE_URL", "https://user:pw@rea.example"],
+    ["PUBLIC_BASE_URL", "https://rea.example?x=1"],
+    ["PUBLIC_BASE_URL", "https://rea.example#frag"],
+    ["PUBLIC_BASE_URL", "https://"],
   ];
 
   it.each(cases)("%s=%j", (name, value) => {
@@ -117,10 +161,39 @@ describe("loadConfig rejects unusable values, naming the variable", () => {
 
   it("never echoes the offending value", () => {
     const marker = "ZZ-marker-value-ZZ";
-    for (const name of ["PORT", "MAX_SESSIONS", "SESSION_IDLE_TIMEOUT_SEC", "TRUST_PROXY", "LOG_LEVEL"]) {
+    for (const name of [
+      "PORT",
+      "MAX_SESSIONS",
+      "SESSION_IDLE_TIMEOUT_SEC",
+      "TRUST_PROXY",
+      "LOG_LEVEL",
+      "MAX_UPLOAD_BYTES",
+      "INBOX_MAX_BYTES",
+      "TRANSFER_TICKET_TTL_SEC",
+      "RESULT_INLINE_LIMIT_CHARS",
+    ]) {
       expect(failure({ [name]: marker }).message).not.toContain(marker);
     }
     expect(failure({ ALLOWED_HOSTS: `http://${marker}` }).message).not.toContain(marker);
+  });
+});
+
+describe("loadConfig PUBLIC_BASE_URL", () => {
+  it("is unset by default", () => {
+    expect(loadConfig({}).publicBaseUrl).toBeUndefined();
+  });
+
+  it("keeps an origin, with or without a trailing slash, a port or upper case", () => {
+    expect(loadConfig({ PUBLIC_BASE_URL: "https://Rea.Example" }).publicBaseUrl).toBe("https://rea.example");
+    expect(loadConfig({ PUBLIC_BASE_URL: "https://rea.example/" }).publicBaseUrl).toBe("https://rea.example");
+    expect(loadConfig({ PUBLIC_BASE_URL: "http://192.168.1.5:8080" }).publicBaseUrl).toBe("http://192.168.1.5:8080");
+    expect(loadConfig({ PUBLIC_BASE_URL: "http://[::1]:8080/" }).publicBaseUrl).toBe("http://[::1]:8080");
+  });
+
+  it("never echoes the offending value", () => {
+    const marker = "ZZ-marker-value-ZZ";
+    expect(failure({ PUBLIC_BASE_URL: `https://u:${marker}@rea.example` }).message).not.toContain(marker);
+    expect(failure({ PUBLIC_BASE_URL: `https://rea.example/${marker}` }).message).not.toContain(marker);
   });
 });
 
@@ -185,20 +258,26 @@ describe("loadConfig REA_GHIDRA_CHECKPOINT_DIR", () => {
 });
 
 describe("DEFAULT_ENV lists every advanced variable of the unRAID template", () => {
-  it("has exactly the eight, the last three with no default", () => {
+  it("has exactly the thirteen advanced variables and the port; three have no default, and so does PUBLIC_BASE_URL", () => {
     expect(Object.keys(DEFAULT_ENV).sort()).toEqual(
       [
         "ALLOWED_HOSTS",
         "GHIDRA_MAX_HEAP",
+        "INBOX_MAX_BYTES",
         "LOG_LEVEL",
         "MAX_SESSIONS",
+        "MAX_UPLOAD_BYTES",
         "PORT",
+        "PUBLIC_BASE_URL",
         "REA_GHIDRA_CHECKPOINT_DIR",
         "REA_GHIDRA_STARTUP_TIMEOUT_MS",
+        "RESULT_INLINE_LIMIT_CHARS",
         "SESSION_IDLE_TIMEOUT_SEC",
+        "TRANSFER_TICKET_TTL_SEC",
         "TRUST_PROXY",
       ].sort(),
     );
+    expect(DEFAULT_ENV.PUBLIC_BASE_URL).toBe("");
     expect(DEFAULT_ENV.GHIDRA_MAX_HEAP).toBe("");
     expect(DEFAULT_ENV.REA_GHIDRA_STARTUP_TIMEOUT_MS).toBe("");
     expect(DEFAULT_ENV.REA_GHIDRA_CHECKPOINT_DIR).toBe("");

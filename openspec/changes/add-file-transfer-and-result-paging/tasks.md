@@ -12,7 +12,7 @@ written as UNVERIFIED.
 
 ## 2. Configuration and image
 
-- [ ] 2.1 Add `PUBLIC_BASE_URL`, `MAX_UPLOAD_BYTES`, `INBOX_MAX_BYTES`, `TRANSFER_TICKET_TTL_SEC` and `RESULT_INLINE_LIMIT_CHARS` to `src/config.ts` (`DEFAULT_ENV`, parsing, ranges, the `0`-or-2000-and-up rule) and to `.env.example`; unit-test defaults, a non-numeric value, each range edge, `0`, and a `PUBLIC_BASE_URL` with a path, a query, credentials, a bad scheme and a trailing slash; verify `npm run lint`, `typecheck`, `test` and that the env-example test lists every variable
+- [x] 2.1 Add `PUBLIC_BASE_URL`, `MAX_UPLOAD_BYTES`, `INBOX_MAX_BYTES`, `TRANSFER_TICKET_TTL_SEC` and `RESULT_INLINE_LIMIT_CHARS` to `src/config.ts` (`DEFAULT_ENV`, parsing, ranges, the `0`-or-2000-and-up rule) and to `.env.example`; unit-test defaults, a non-numeric value, each range edge, `0`, and a `PUBLIC_BASE_URL` with a path, a query, credentials, a bad scheme and a trailing slash; verify `npm run lint`, `typecheck`, `test` and that the env-example test lists every variable
 - [ ] 2.2 Make `docker/entrypoint.sh` create `/work/inbox` and `/work/results` and check that they are writable, and have the gateway empty `/work/results` and remove `.upload-*.tmp` files in the inbox at startup; verify by running the built image with an empty `/work`, with a read-only `/work/inbox`, and with leftover files in both
 
 ## 3. Tickets and the inbox
