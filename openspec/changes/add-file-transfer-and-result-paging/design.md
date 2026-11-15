@@ -222,8 +222,9 @@ uid 99. Files are named by the caller, so a name is validated when the ticket is
 requested (the agent hears about a bad name before it uploads anything) and again before
 the write:
 
-- one path component: no `/`, no `\`, no NUL, no control character, not `.` or `..`, not
-  starting with `.`, at most 200 bytes in UTF-8;
+- one path component: no `/`, no `\`, no NUL, no control character, no character that changes
+  the direction of text (a right-to-left override can make `gpj.txt` read as `txt.jpg`), not
+  `.` or `..`, not starting with `.`, at most 200 bytes in UTF-8, and well-formed text;
 - the final path is always `/work/inbox/<name>`, and the directory is opened once and
   all writes go relative to it, so no name can reach outside it.
 
