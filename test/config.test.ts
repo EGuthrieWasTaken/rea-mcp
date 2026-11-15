@@ -16,7 +16,7 @@ describe("loadConfig defaults", () => {
     expect(loadConfig({})).toEqual({
       port: 8080,
       maxSessions: 4,
-      sessionIdleTimeoutSec: 900,
+      sessionIdleTimeoutSec: 300,
       trustProxy: false,
       allowedHosts: [],
       logLevel: "info",

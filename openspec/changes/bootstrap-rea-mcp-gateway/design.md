@@ -135,6 +135,9 @@ first `X-Forwarded-For` entry.
   and the directory of a failed start is removed. Doing it inside the SDK
   transport would have committed a `200` SSE stream before REA had answered.
 - Idle reaping considers a session idle only when its in-flight count is zero.
+- Whenever a session ends, requests still waiting for REA are answered with a JSON-RPC error (`-32603`) before the
+  transport closes. The child-exit path already did this; the image work found that the client's `DELETE` and
+  gateway shutdown ended the stream with an empty `200` instead (`docs/DESIGN.md`, section 11.5).
 - Children are spawned in their own process group (`detached: true`) so that
   termination can signal the whole group (REA plus any Ghidra JVM). Termination
   closes the child's stdin first, because REA treats stdin end as a shutdown
@@ -236,9 +239,9 @@ maximum heap is verified in task 4.4.
 
 ### D11. unRAID template validation
 
-CI runs `xmllint --noout` for well-formedness and a small script asserting the
-required elements, `Config` targets, the empty masked key default, and the
-`ro` samples mode. Template defaults are compared against the gateway's
+CI runs a small script (`scripts/check_template.py`) that parses the template
+strictly, so a malformed file fails it, and asserts the required elements,
+`Config` targets, the empty masked key default, and the `ro` samples mode. Template defaults are compared against the gateway's
 defaults by the same script so the two cannot drift. An optional
 `ca_profile.xml` is added only if the Community Apps guidelines call for it.
 
@@ -319,8 +322,10 @@ Program after first analysis and again on normal close, and restores it with
   non-stock targets fail to open with Ghidra and annotations are visible across
   conversations on the same binary. Documented in the template and README.
 - **A conversation can lock itself out of its binary** → the lease is held by
-  its own idle child until reaped or closed; mitigated by `close_binary`
-  guidance and, if needed, a shorter idle timeout. Inferred, not yet tested.
+  its own idle child until reaped or closed. Seen with Claude Code (task 8.3, `docs/DESIGN.md` section 14): the
+  client never ends its sessions and the agent calls `close_binary` only when told, so a finished conversation
+  holds a session slot, a Ghidra and the lease until `SESSION_IDLE_TIMEOUT_SEC`. Mitigated by `close_binary`
+  guidance and by a default of 300 s, which costs a quiet conversation its open binary.
 - **The checkpoint grace period may be too short for a very large Program** →
   edits since the last save are lost, never corrupted; the 30 s constant is
   revisited if testing shows otherwise.
@@ -343,11 +348,13 @@ fixed request header (read, not tried).
 
 Still **UNVERIFIED**:
 
-- `template` and `gate` on GitHub (the first run found and fixed a bug), a seeded violation on a scratch branch,
-  the branch ruleset, Dependabot's `docker` entry, and GHCR publishing (written, disabled pending the
-  maintainer's approval). The `image` job has passed on a pull request.
-- Claude Code and the claude.ai connector against this server: separate MCP session per conversation, and
-  whether `DELETE /mcp` or `close_binary` is sent on exit (task 8.3).
+- Dependabot proposing a new digest when the tag moves and skipping a new Node major (its first run found nothing
+  to update); and GHCR publishing (enabled with the maintainer's approval, first run pending). The CI jobs have run on
+  GitHub, including the seeded-violation checks of task 6.2.
+- The claude.ai connector and interactive Claude Code against this server. Claude Code in `-p` mode was run end to
+  end (`docs/DESIGN.md` section 14): each conversation gets its own session, the client never sends `DELETE /mcp`
+  and the agent calls `close_binary` only when told, so finished conversations' sessions linger until the idle
+  timeout.
 - A Cloudflare Tunnel in front of it: the limits for a stream that has started and then goes quiet, and what
   happens to a call whose connection a proxy cut. (Cloudflare documents a 125 s default for a first response.)
 - Checkpointing and analysis on a Program much larger than the 770 KB sample, and whether the 30 s grace
@@ -372,6 +379,9 @@ isolation of the container, not the gateway, is what limits it.
    to evicting the longest-idle session?
 4. Which image tags should CI publish (`latest` on `main`, `vX.Y.Z` on tags,
    commit SHA)? Publishing to GHCR needs explicit maintainer approval first.
+   **Decided 2026-11-15, by the maintainer's approval of the implementation (task 6.4):** a push to `main`
+   publishes `latest` and `sha-<12>`, and a `vX.Y.Z` tag publishes `X.Y.Z` and `sha-<12>`; nothing else publishes
+   (`scripts/image_tags.sh`).
 5. Should the GHCR package be public (required for a template that pulls
    without registry credentials)? **Decided 2026-11-14: public.** Creating and
    publishing it still needs the maintainer's approval at that time.

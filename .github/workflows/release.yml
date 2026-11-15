@@ -1,0 +1,37 @@
+name: Release
+
+# openspec:ci-gate, change task 6.5 (optional). When a `vX.Y.Z` tag is pushed, this creates the GitHub Release for
+# it, with release notes generated from the pull requests merged since the previous release and a line naming the
+# container image of that version. The image itself is published by publish.yml on the same tag; this workflow
+# attaches nothing, because the project ships no files, only that image.
+#
+# It uses only the workflow's own token and the runner's `gh`, so there is no third-party action to pin, and it
+# checks out no code. A tag that is not exactly vX.Y.Z creates nothing.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+# Nothing by default; the one job asks for what it needs.
+permissions: {}
+
+jobs:
+  release:
+    name: release
+    if: github.repository == 'EGuthrieWasTaken/rea-mcp' # a fork's tags must not create releases
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the release for this repository's own tag, and nothing else
+    steps:
+      - name: Create the GitHub Release for this tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "release: $TAG is not a vX.Y.Z tag, so no release is created" >&2; exit 1; }
+          image="ghcr.io/${REPO,,}:${TAG#v}"
+          gh release create "$TAG" --repo "$REPO" --verify-tag --title "$TAG" --generate-notes \
+            --notes "Container image: \`$image\` (published by the Publish image workflow for this tag)."

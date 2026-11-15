@@ -4,10 +4,11 @@ REA + Ghidra as a remote MCP server, packaged for unRAID.
 
 > **Status.** The gateway, the Docker image and the unRAID template are built and were
 > verified on an unRAID 7.3.4 host (evidence: [`docs/DESIGN.md`](docs/DESIGN.md), section 11).
-> **Nothing is published yet**: there is no `ghcr.io` package (the publish workflow is written and disabled).
-> The CI job that builds and smoke-tests the image has passed on a pull request. Until a package exists, build
-> the image yourself (see
-> [Quick start](#quick-start)). The claude.ai connector and a Cloudflare Tunnel have not been tried end to end.
+> **Publishing is enabled** (a push to `main` or a `vX.Y.Z` tag publishes `ghcr.io/eguthriewastaken/rea-mcp`), but
+> the first run has not happened yet, and GitHub makes a new package private until its owner sets it public. If
+> `docker pull ghcr.io/eguthriewastaken/rea-mcp:latest` does not work for you, build the image yourself (see
+> [Quick start](#quick-start)). Claude Code has been run end to end against the container; the claude.ai connector
+> and a Cloudflare Tunnel have not been tried.
 
 A single Docker container that exposes [REA](https://github.com/morluto/rea) ("Reverse Engineer
 Anything", npm package `rea-agents`) and its analysis engines (Ghidra, tshark, objdump) as a **remote MCP
@@ -107,7 +108,7 @@ variable. A variable set to nothing counts as unset.
 | `REA_MCP_API_KEYS` | none | Comma-separated keys, for rotation. All three sources are combined |
 | `PORT` | `8080` | Port the gateway listens on inside the container |
 | `MAX_SESSIONS` | `4` | Open sessions at once, one REA and one Ghidra process each. Over the limit: `503` with `Retry-After`, and nothing is evicted |
-| `SESSION_IDLE_TIMEOUT_SEC` | `900` | A session with no request and no call in flight for this long is ended |
+| `SESSION_IDLE_TIMEOUT_SEC` | `300` | A session with no request and no call in flight for this long is ended. **Read [Tell the agent to close what it opens](#tell-the-agent-to-close-what-it-opens) before leaving the default** |
 | `TRUST_PROXY` | `false` | `true` only behind a trusted proxy or tunnel: the client address then comes from `CF-Connecting-IP` or `X-Forwarded-For` |
 | `ALLOWED_HOSTS` | empty | Comma-separated `Host` names accepted on `/mcp` (case-insensitive, port ignored). Empty accepts any. `/healthz` is exempt |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. Logs never contain request headers or keys |
@@ -142,7 +143,14 @@ claude mcp add --transport http rea https://<host>/mcp --header "x-api-key: <key
 claude mcp add --transport http rea http://localhost:8080/mcp --header "x-api-key: <key>"
 ```
 
-The command line ends up in your shell history. Then ask Claude Code to list the `rea` tools.
+The command line ends up in your shell history. To keep the key out of it and out of Claude Code's configuration
+file, export it (`export REA_KEY=<key>`) and give the header in **single quotes** so the shell does not expand it:
+`--header 'x-api-key: ${REA_KEY}'`. Claude Code expands `${REA_KEY}` when it loads the server (checked with a
+configuration passed on the command line, which connected; `claude mcp add --scope project` wrote the placeholder
+and not the key to `.mcp.json`, but that server was still awaiting approval, so it was not connected). A server added with `--scope project` (shared in
+`.mcp.json`) must be approved once by running `claude`. Then ask Claude Code to list the `rea` tools. This was
+run end to end against the container with Claude Code 2.1.319 in `claude -p` mode: all 255 tools appear, and an
+analysis of a sample works.
 
 **claude.ai custom connector** (steps from Anthropic's help page; not yet tried against this server): open
 **Customize, Connectors**, choose **+ Add**, **Add custom connector**, enter `https://<host>/mcp`, and
@@ -163,6 +171,23 @@ Details: [`docs/CLOUDFLARE.md`](docs/CLOUDFLARE.md).
 
 Add a line like this to your instructions: *"When you finish with a binary, call `close_binary`."* It
 releases Ghidra and, with checkpoints on, saves your edits and frees the binary for the next session.
+
+This matters because of what Claude Code was observed to do (version 2.1.319, `claude -p`; interactive use and the
+claude.ai connector were not tested):
+
+- **Every conversation gets its own session** (its own REA and Ghidra).
+- **It does not end its session when it finishes.** It sends no `DELETE /mcp`, and the agent calls `close_binary`
+  only if you tell it to (it never did unprompted). The session, its Ghidra (about 1.2 GB) and its slot stay
+  until `SESSION_IDLE_TIMEOUT_SEC` passes.
+- **So finished conversations use up `MAX_SESSIONS`.** At the defaults (4 sessions, 300 s), four conversations
+  within five minutes make the server answer `503` to the next one, which then has no `rea` tools; it works again once
+  an idle session is reaped. With checkpoints on, a new conversation on the same binary is refused ("another REA
+  session owns this checkpoint") until the previous conversation's session is reaped or has called `close_binary`.
+- **The timeout trades slots against a quiet conversation's open binary.** The default is 300 s (it was 900 s until
+  this was seen). A conversation that is quiet for longer than the timeout loses its session; Claude Code reconnects
+  by itself, but the new session has nothing open, so the agent must open the binary again (it did, in the test) and
+  unsaved edits are gone. Lower it to free slots sooner; raise it (and `MAX_SESSIONS`, with RAM to match) if your
+  conversations pause for long. With `close_binary` in your instructions, the checkpoint lock-out is gone either way.
 
 ## Keeping analysis between sessions (checkpoints)
 

@@ -1,9 +1,10 @@
 # rea-mcp design (long form)
 
-> **Status (2026-11-14).** The gateway, image, template, icon and their checks are built and verified on an
+> **Status (2026-11-15).** The gateway, image, template, icon and their checks are built and verified on an
 > unRAID 7.3.4 host (sections 8 to 11). The CI jobs ran on the first pull request, where `image` passed and
-> `template` exposed a bug that is fixed (section 12); the GHCR workflow is written and disabled; and the
-> end-to-end checks with real clients and a tunnel are still to do (section 14).
+> `template` exposed a bug that is fixed (section 12); the GHCR workflow is enabled and its first run is still to come;
+> Claude Code has been run end to end against the container (section 14); and the claude.ai connector and a Cloudflare
+> Tunnel are still to do.
 > Section 13 is the current list of what is **UNVERIFIED**. The decisions that shape the specs live in
 > [`openspec/changes/bootstrap-rea-mcp-gateway/design.md`](../openspec/changes/bootstrap-rea-mcp-gateway/design.md);
 > this document records the evidence behind them. User-facing guidance is in the
@@ -1326,7 +1327,7 @@ Four concurrent sessions were not run.
 |---|---|
 | Client `DELETE /mcp` | `200` in 5 ms. REA cancelled the call (`status: "error"` in its log), stopped Ghidra and exited `0` 0.64 s after the gateway closed its stdin; no `SIGTERM` or `SIGKILL`; no Java or decompiler process left |
 | `docker stop` (default 10 s) | 0.84 s; container exit code `0`; REA exited `0` about 0.6 s after the `SIGTERM` reached the gateway |
-| The request that was in flight | In both cases it ended as HTTP `200` with an empty body: no JSON-RPC result and no JSON-RPC error. The spec fixes only the child-exit case ("fail its in-flight requests with an error"), so this is recorded as an observation, not a defect |
+| The request that was in flight | In both cases it ended as HTTP `200` with an empty body: no JSON-RPC result and no JSON-RPC error. The spec fixes only the child-exit case ("fail its in-flight requests with an error"), so this was recorded as an observation. **Fixed on 2026-11-15** (section 16): a request in flight when its session ends now gets a JSON-RPC error (`-32603`, "Session ended") |
 
 ### 11.6 Checkpoints with a real Ghidra (task 4.6; section 2.8)
 
@@ -1395,15 +1396,16 @@ container was known to be running, so an early exit gave no message; and `docker
 ## 12. CI jobs written ahead of their first run (tasks 6.2 to 6.4)
 
 Written on 2026-11-14 and checked locally first; a workflow is only verified by a pull request run, which the
-maintainer then allowed (pull request 5; results below the table). Task 6.3 is ticked on that run, while 6.2 and 6.4
-stay unticked. What was checked locally, and what remained:
+maintainer then allowed (pull request 5; results below the table). Task 6.3 is ticked on that run, and 6.2 on the
+seeded-violation run of 2026-11-15 (below); 6.4 stays unticked. What was checked locally, and what remained:
 
 | Piece | Checked here (**Ran**) | Still to do |
 |---|---|---|
-| `template` job in `ci.yml` | `scripts/check_template.py` passes and its self-test rejects all 31 seeded violations (section 10.8) | Run on a pull request; seed one violation on a scratch branch and see the job fail |
+| `template` job in `ci.yml` | `scripts/check_template.py` passes and its self-test rejects all 31 seeded violations (section 10.8) | Done: passed on pull requests and on `main`, and failed on a seeded violation (below) |
 | `image` job in `ci.yml` | The same Docker commands ran on this host: the build (section 11.1), `scripts/check_hash_pins.sh` (an altered Ghidra or JDK hash fails the build on the checksum and leaves no image) and `scripts/smoke_test.sh` (section 11.7) | Done: passed on a runner (below) |
 | `gate` | Parsed with the `yaml` package: every job other than `gate` is in its `needs` | Seeing it fail when a job fails |
-| `.github/workflows/publish.yml` | Parses; has no automatic trigger and a job switched off with `if: false`; empty top-level `permissions`, job-level `contents: read` and `packages: write`; no third-party action. `scripts/image_tags.sh` gives `latest` and `sha-<12>` for `main`, `X.Y.Z` and `sha-<12>` for a `vX.Y.Z` tag, and refuses every other ref and malformed input | Not to be enabled or run until the maintainer approves (task 6.4) |
+| `.github/workflows/publish.yml` | Parses; triggers on a push to `main`, a `vX.Y.Z` tag and manually, with a guard so a fork does not publish; empty top-level `permissions`, job-level `contents: read` and `packages: write`; no third-party action. `scripts/image_tags.sh` gives `latest` and `sha-<12>` for `main`, `X.Y.Z` and `sha-<12>` for a `vX.Y.Z` tag, and refuses every other ref and malformed input. It was written disabled and **enabled on 2026-11-15 with the maintainer's approval** | Its first run, on the merge to `main`, is the first test of the login, the push and the package's creation; then the package must be made public. Task 6.4 is ticked after that run succeeds |
+| `.github/workflows/release.yml` (task 6.5, optional; added 2026-11-15) | Parses; triggers only on a `vX.Y.Z` tag; empty top-level `permissions`, job-level `contents: write`; no checkout and no third-party action; a guard against forks. Its script, run locally with `gh` stubbed, builds `gh release create vX.Y.Z --verify-tag --generate-notes` with a line naming `ghcr.io/eguthriewastaken/rea-mcp:X.Y.Z`, and refuses `v1.2`, `v1.2.3-rc1` and a branch name; the flags were checked against `gh release create --help` | Its first run is on the first `vX.Y.Z` tag. Task 6.5 is ticked after that run succeeds |
 
 Design choices: the new jobs use the runner's own `docker` and `python3` and so add no third-party action
 to pin and no binary to hash-verify. The template job does not call `xmllint` (design D11 mentions it): the
@@ -1429,8 +1431,36 @@ Also run once on a clean copy of this branch in a Node 24.22.3 container (as roo
   3.9 and 3.13 (**Ran**). A lesson for the checker: the self-test found the bug only because it exercises odd
   inputs, and only a runner with a different Python could show it.
 - The other six jobs (`lint`, `typecheck`, `test`, `secrets`, `hygiene`, `openspec`) passed.
-- Task 6.2 stays unticked until `template` passes on the pull request and a seeded violation has been tried on a
-  scratch branch, which needs a second push.
+- Task 6.2 stayed unticked until `template` passed and a seeded violation had been tried on a scratch branch (next).
+
+### Seeded violations, and the jobs passing (task 6.2, 2026-11-15)
+
+- **Passing.** The final run of pull request 5 (run 43665105676) and the push run on `main` after the squash merge
+  (run 43681029352, commit `a5a2cfa`) each passed all nine jobs, `secrets` (gitleaks over the full history) and
+  `template` included.
+- **Failing on purpose.** A scratch branch off `main` carried two commits: a random credential-shaped string
+  (`api_key = "<64 hex digits made at run time>"`, in `scratch-seeded-credential.txt`; not a credential for anything)
+  and `<Privileged>true</Privileged>` in the template. Its draft pull request (number 6, run 43681170242) gave:
+
+  | Job | Result | Why, from the log |
+  |---|---|---|
+  | `secrets` | fail | gitleaks: rule `generic-api-key`, file `scratch-seeded-credential.txt`, the seed commit, value redacted, "9 commits scanned", "leaks found: 1" |
+  | `template` | fail | `template: <Privileged> is 'true'; it must be 'false'` |
+  | `gate` | fail | its `needs` include the two jobs above |
+  | `hygiene`, `image`, `lint`, `openspec`, `test`, `typecheck` | pass | the seeds touch nothing they check, so only the two intended jobs failed |
+
+  Before pushing, the same two violations were caught locally (gitleaks: 1 finding; the checker: the message
+  above). The pull request was closed without merging and the branch deleted. GitHub keeps a closed pull request's
+  head commit reachable through its `refs/pull/6/head` ref, so the seeded string remains visible there; it is
+  random and worthless, and it is not in `main`, whose history a squash merge never carries it into.
+- **The branch ruleset.** The repository's rulesets, read through the API, are now the single imported `main`
+  ruleset. The maintainer imported it and confirmed that a direct push to `main` is rejected (task 6.0a, ticked on
+  that confirmation; it was not tried here).
+- **Dependabot.** Its first runs, on 2026-11-15, succeeded for both the `github_actions` and the `docker` entries.
+  The `docker` run read the Dockerfile's `FROM` line, reported "Latest version is 24-bookworm-slim" and "No update
+  needed for node 24-bookworm-slim", and opened no pull request, which is right because the digest pinned on
+  2026-11-14 is current. Whether it proposes a new digest when the tag moves, and skips a new Node major as configured,
+  cannot be seen until something changes.
 
 ## 13. What is still UNVERIFIED (current)
 
@@ -1439,12 +1469,11 @@ An item is **UNVERIFIED** until a primary source or a run shows it.
 
 | Item | Why open | What would close it |
 |---|---|---|
-| `template` and `gate` on GitHub, a seeded violation on a scratch branch, and the branch ruleset | `image` and six other jobs passed on pull request 5; `template` failed on a bug since fixed (section 12); the ruleset import (task 6.0a) is the maintainer's | The next pull request run; a seeded violation on a scratch branch; the maintainer importing the ruleset |
-| Dependabot's `docker` entry proposing digest updates and ignoring Node majors | Configured, never run | The first Dependabot run after a push |
-| GHCR publishing | Written and disabled (task 6.4); needs the maintainer's approval; the package must then be set public | Maintainer approval, then a first publish |
-| Claude Code and the claude.ai connector against this server, including whether each conversation gets its own session and whether `DELETE /mcp` or `close_binary` is sent on exit (item 18) | Needs real clients (task 8.3). Anthropic's page says a connector accepts fixed request headers (**Docs**), which is not the same as trying it | Task 8.3 (section 14) |
-| A Cloudflare Tunnel in front of it: the idle and absolute limits for a stream that has started, and what happens to a call whose connection a proxy cut | Cloudflare documents a 125 s default Proxy Read Timeout for a first response (**Docs**); the rest is not documented on the pages read | Task 8.3 with a call longer than 125 s |
-| What `DELETE /mcp` should do to a request in flight | Observed: it ends as `200` with an empty body (section 11.5); the spec is silent | A maintainer decision, then a spec line and a test |
+| Dependabot's `docker` entry proposing a new digest when the tag moves, and skipping a new Node major | It ran and found `node 24-bookworm-slim` current (section 12); nothing has changed since | The tag moving, or a new Node major appearing |
+| `release.yml` (task 6.5, optional) creating a GitHub Release on a `vX.Y.Z` tag | Written and checked locally with `gh` stubbed; never run: no version tag exists yet | The first `vX.Y.Z` tag, which also exercises the tag path of `publish.yml` |
+| GHCR publishing | Enabled with the maintainer's approval (task 6.4); never run: the first run is on the merge to `main`; the package must then be set public by the maintainer | The first publish run; then `docker pull` of the image anonymously |
+| The claude.ai connector against this server, and interactive Claude Code (whether they send `DELETE /mcp`, and whether each conversation gets its own session; the rest of item 18) | Claude Code in `-p` mode was run end to end (section 14): separate sessions, no `DELETE`, no `close_binary` unless told. Anthropic's page says a connector accepts fixed request headers (**Docs**), which is not the same as trying it | The maintainer's steps in section 14 |
+| A Cloudflare Tunnel in front of it: the idle and absolute limits for a stream that has started, and what happens to a call whose connection a proxy cut | Cloudflare documents a 125 s default Proxy Read Timeout for a first response (**Docs**); the rest is not documented on the pages read | The maintainer's tunnel steps in section 14, with a call longer than 125 s |
 | APK decompilation | No APK sample and no JADX in the image by design | Not planned |
 | Analysis and checkpoint behaviour on a truly large Program (tens of MB), and whether 30 s suffices | The largest sample is 770 KB | A larger permitted target |
 | Four concurrent sessions, 8G heaps, and the effect of unRAID's own PID limit setting | Only two sessions were run, at the default heap | A load test on the host |
@@ -1459,28 +1488,51 @@ and forced-SSE responses, **Ran** in section 7) and item 12's first half (the co
 header, **Docs**, 2026-11-14: Anthropic's custom-connector help page lists "Request headers"). Item 11 and the
 Community Apps rules are moot, since submission was decided against (section 5.5).
 
-## 14. Hand-over for task 8.3 (maintainer steps)
+## 14. Claude Code against a running container (task 8.3)
 
-Everything below needs the maintainer's account, client or network, so none of it has been done. Use a
-throwaway key and a samples folder holding only files you may analyze.
+Run on 2026-11-15 with the real client, Claude Code 2.1.319, non-interactively (`claude -p`, Haiku 5.5, built-in tools
+off, `--strict-mcp-config`, `--no-session-persistence`, a spending cap; about 55 cents in all), against the image
+built on this host, started hardened with `/samples` read-only. **Each `claude -p` run is one conversation.** The key
+reached the client only through `${REA_CC_KEY}` expansion in its MCP configuration, and the container through its
+environment: no file holds it. Everything is **Ran** unless it says otherwise. The gateway's own log, with
+REA's tool-call lines at `LOG_LEVEL=debug`, is the source for what the server saw.
 
-1. **Run the container locally**, as in the README's quick start, on a free port, with `MAX_SESSIONS=2`.
-2. **Claude Code:** `claude mcp add --transport http rea http://localhost:<port>/mcp --header "x-api-key: <key>"`,
-   then ask it to list the `rea` tools and to analyze one permitted sample. Watch `docker logs` for
-   `session started`.
-3. **Sessions and cleanup:** start a second Claude Code conversation and see whether it gets a separate session
-   (two `session started` lines); end one and see whether `DELETE /mcp` arrives (`session ended`, reason
-   `deleted by client`) or the session is only reaped after `SESSION_IDLE_TIMEOUT_SEC`; ask the agent to call
-   `close_binary` when done and see that Ghidra's process goes away (`docker exec <container> ps aux`).
-4. **With checkpointing** (`REA_GHIDRA_CHECKPOINT_DIR=/work/checkpoints`, Docker Stop Timeout at least 40 s):
-   annotate a function, end the conversation, start a new one on the same binary, and see the annotation;
-   then try to open the binary from two conversations at once and see "another REA session owns this checkpoint".
-5. **A Cloudflare Tunnel** (`docs/CLOUDFLARE.md`): route `<host>` to the container, set `TRUST_PROXY=true` and
-   `ALLOWED_HOSTS=<host>`, check `https://<host>/healthz`, then repeat step 2 against `https://<host>/mcp`. Try one
+| Question | Result |
+|---|---|
+| Connect, list tools | Connected with `{"type": "http", "url": ..., "headers": {"x-api-key": "${VAR}"}}`, the shape `claude mcp add --transport http ... --header` writes: all 255 tools visible |
+| The documented command | `claude mcp add --transport http --scope project rea <url> --header 'x-api-key: ${REA_CC_KEY}'` wrote exactly that shape, with the placeholder in the file and not the key. `claude mcp list` then showed the server as "Pending approval (run `claude` to approve)": a server shared through a project's `.mcp.json` needs approval, which local and user scope do not (**Docs**). The connection itself was proved through `--mcp-config` |
+| One analysis | The agent opened `switch`, called `list_procedures` (11 s, Ghidra starting), `procedure_pseudo_code` and `inspect_analysis_view`, and answered correctly: 23 procedures; `main` prints a usage message unless `argc == 3`, otherwise parses two numbers and calls through `array[n % 10]` (as in section 11.5). About 5 cents |
+| Do separate conversations get separate MCP sessions? | **Yes.** Every run started its own session, with its own REA and Ghidra |
+| Does the client send `DELETE /mcp` on exit? | **No.** In every run the client exited without one. The session, its REA and its Ghidra stayed alive until the gateway's idle reaper ended them (`session ended ... idle`, REA exit 0). Tested with `claude -p`; interactive Claude Code was not |
+| Does the agent call `close_binary`? | **Not unless told**: never in eight conversations; once in the one whose prompt said to (and then it did) |
+| The session cap | With `MAX_SESSIONS=2` and two finished conversations still lingering, a third conversation's `initialize` got `503` three times and the client ended up with no `rea` tools at all. After the idle reaper ran, a new conversation worked |
+| Checkpoints, reconnecting on the same binary (`REA_GHIDRA_CHECKPOINT_DIR=/work/checkpoints`, idle timeout 60 s) | K1 edited a function and left. **K2**, a new conversation seconds later on the same binary, was blocked: "another REA session owns this checkpoint ... close that session before retrying". After the reaper ended K1's session, **K3** saw K1's comment (so the reaper's close saved it), edited, and called `close_binary`; **K4** then got straight in and saw K3's comment, although K3's session was still alive |
+| A conversation that goes quiet longer than the idle timeout (20 s) and carries on | The gateway ended the session. The client opened new sessions by itself (two at once, one of them unused until reaped); its next call failed with `target_unavailable` (the new REA has nothing open); the agent re-opened the binary and finished. The open binary and unsaved edits belong to the session and are lost with it |
+
+What follows from this:
+
+- Because the client leaves sessions behind, **a finished conversation costs a session slot, a Ghidra process (about
+  1.2 GB) and, with checkpoints, the binary's lease, for `SESSION_IDLE_TIMEOUT_SEC`**, which defaulted to 900 s when this
+  was run (the maintainer then chose 300 s: section 16). At `MAX_SESSIONS` 4, four conversations within that time make the
+  server refuse the next one, and with checkpoints a follow-up conversation on the same binary is locked out for the same
+  time. The README says so.
+- Telling the agent to call `close_binary` works and is the fix for the lease. It frees Ghidra and the binary but not
+  the session slot, which stays until the idle timeout.
+- A shorter `SESSION_IDLE_TIMEOUT_SEC` frees slots sooner and costs the open binary of a quiet conversation (the agent
+  recovered here by re-opening it). The maintainer chose a default of 300 s (section 16).
+
+Not tested, so still open (section 13): interactive Claude Code; other models (the transport behaviour should not depend
+on the model); the claude.ai connector; and a Cloudflare Tunnel.
+
+### Steps left for the maintainer
+
+1. **The claude.ai custom connector:** Customize, Connectors, Add custom connector, URL `https://<host>/mcp`, request
+   header `x-api-key` with your key, no sign in; enable it in a conversation and run an analysis. Check whether its
+   conversations behave as above (a separate session each, no `DELETE`) in `docker logs`.
+2. **A Cloudflare Tunnel** (`docs/CLOUDFLARE.md`): route `<host>` to the container, set `TRUST_PROXY=true` and
+   `ALLOWED_HOSTS=<host>`, check `https://<host>/healthz`, then repeat an analysis through `https://<host>/mcp`. Try one
    call that runs longer than 125 s (a large target) and note what the client sees.
-6. **claude.ai custom connector:** Customize, Connectors, Add custom connector, URL `https://<host>/mcp`,
-   request header `x-api-key` with your key, no sign in; enable it in a conversation and run an analysis.
-7. Record each outcome here, as **Ran** or as a defect.
+3. Record each outcome here, as **Ran** or as a defect.
 
 ## 15. Review of the documents for secrets (task 7.5)
 
@@ -1495,23 +1547,24 @@ unRAID, Cloudflare and Anthropic locations. No real host name, key or token of t
 
 ## 16. Reconciling the specs with what was built (task 8.4)
 
-`openspec validate bootstrap-rea-mcp-gateway --strict` passes (2026-11-14). Compared with the built image,
-template and scripts, every requirement of `container-image`, `unraid-template`, `secret-hygiene` and the
-image-related scenarios of `session-management` and `ci-gate` is met or has its evidence above, with these
-differences. **None of the spec changes below has been made**: a spec change is the maintainer's to decide, and the
-one the maintainer approved (the JDK archive in the `secret-hygiene` fetch scenario, section 5.5) is already in.
+`openspec validate bootstrap-rea-mcp-gateway --strict` passes. On 2026-11-14 the specs were compared with the built
+image, template and scripts; every requirement of `container-image`, `unraid-template`, `secret-hygiene` and the
+image-related scenarios of `session-management` and `ci-gate` was met or had its evidence above, with the differences
+below (the Claude Code run of section 14 added the last). They were put to the maintainer, who answered **"all as
+recommended"** on 2026-11-15. What was decided, and where it landed:
 
-| Observation | Proposed change, for the maintainer |
+| Observation | Decision, and where it landed |
 |---|---|
-| The image downloads a Temurin JDK and verifies its SHA-256 exactly like Ghidra; `container-image` has a "Pinned, verified Ghidra" requirement and nothing for the JDK (a wrong JDK hash fails the build: section 11.1, `scripts/check_hash_pins.sh`) | Add a requirement, "Pinned, verified JDK when the base distribution packages none", with the same two scenarios |
-| `DELETE /mcp`, and `docker stop`, while a request is in flight end that request as HTTP `200` with an empty body (section 11.5). `session-management` fixes only the child-exit case | Say what a request in flight gets when its session is ended by the client or by shutdown (for example a JSON-RPC error), then add a test |
-| `container-image` says the gateway reports an unwritable `/work` and the entrypoint reports `/tmp`; the built entrypoint reports both, plus `/work/home` and `/work/sessions` (section 11.2) | Optionally name those two directories in the "Unwritable work directory" scenario |
-| The CI `template` job does not call `xmllint`, which design D11 mentions (section 12) | None needed; D11's wording could say "a strict XML parse" |
-| `unraid-template` fixes `Category` as the bare `Tools:`, and the template follows it; Community Apps was not consulted, since submission was decided against | None unless submission is reconsidered |
-| Design open question 4 (which image tags to publish) is still open; `scripts/image_tags.sh` implements a proposal | Decide the tag policy before publishing is enabled |
+| The image downloads a Temurin JDK and verifies its SHA-256 like Ghidra's, but `container-image` had a requirement only for Ghidra | A requirement "Pinned, verified JDK where the base distribution has none" was added to `container-image`, with a match scenario and a mismatch scenario. Evidence: sections 11.1 and 12 (`scripts/check_hash_pins.sh`) |
+| `DELETE /mcp` and `docker stop` ended a request in flight as an empty `200` (section 11.5) | A requirement "Calls still open when a session ends are answered" was added to `session-management` (a `DELETE`, a shutdown, and no second answer after REA's exit). **Gateway code changed**: `end()` in `src/sessions/manager.ts` now answers every request still waiting with `-32603`, "Session ended", through `failInFlight`, which the child-exit path shares. Four tests in `test/lifecycle.test.ts`; against the previous code the three about `DELETE` and shutdown fail (the call never gets an answer) and the fourth, which pins the existing child-exit behaviour, passes |
+| The entrypoint also checks `/work/home` and `/work/sessions` (section 11.2) | A scenario for an unwritable directory under `/work` was added to "Volumes and working directory" |
+| Design D11 mentions `xmllint`, which CI does not call (section 12) | D11 now says the checker parses the XML strictly |
+| `unraid-template` fixes `Category` as the bare `Tools:`; Community Apps was not consulted | No change; revisit only if submission is reconsidered |
+| Design open question 4, the image tags | Decided by the maintainer's approval of the implementation (task 6.4): `main` publishes `latest` and `sha-<12>`, a `vX.Y.Z` tag publishes `X.Y.Z` and `sha-<12>`, nothing else publishes. Recorded in the design's open question 4 |
+| Claude Code never ends its sessions or calls `close_binary` unprompted (section 14), so finished conversations hold slots for `SESSION_IDLE_TIMEOUT_SEC` | The default was lowered from 900 s to **300 s**: the `mcp-http-gateway` spec, `DEFAULT_ENV` in `src/config.ts`, the fallback in `src/sessions/manager.ts`, the unRAID template (default, value and description), `.env.example`, the README and the config test. `scripts/check_template.py` confirms the template still equals `DEFAULT_ENV` |
 
-The design's "Unverified assumptions" section was refreshed to the current state (it is a planning
-artifact, not a spec).
+The design's "Unverified assumptions" section and D6, D11 and the risk about a conversation locking itself out of its
+binary were refreshed to match (they are a planning artifact, not a spec).
 
 ## 17. Acceptance checks 8.1 and 8.2
 

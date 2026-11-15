@@ -1,23 +1,22 @@
 name: Publish image
 
-# openspec:ci-gate, change task 6.4 (bootstrap-rea-mcp-gateway).
+# openspec:ci-gate, change task 6.4 (bootstrap-rea-mcp-gateway). Enabled on 2026-11-15 with the maintainer's approval.
 #
-# DISABLED ON PURPOSE. This publishes ghcr.io/eguthriewastaken/rea-mcp, and CLAUDE.md requires the maintainer's
-# approval before the package is created or published. So:
-#   - the only trigger is a manual `workflow_dispatch`, and the job below is switched off with `if: false`;
-#   - the automatic triggers (push to main, vX.Y.Z tags) are commented out.
-# To enable it, with the maintainer's approval: delete the `if: false` line, uncomment the `push:` trigger, then
-# set the package to public in GitHub (Packages, the package's settings) after the first publish, because a new
-# package starts private and the unRAID template pulls without credentials.
+# Publishes ghcr.io/eguthriewastaken/rea-mcp: on every push to `main` the tags `latest` and `sha-<12>`, and on every
+# `vX.Y.Z` tag the tags `X.Y.Z` and `sha-<12>` (scripts/image_tags.sh; any other ref publishes nothing and fails).
+# It builds the image, repeats the checks of the `image` job in ci.yml (a wrong Ghidra or JDK hash must fail the
+# build; the smoke test must pass), and only then pushes. It uses only the workflow's own token (no stored secrets)
+# and the runner's Docker, so there is no third-party action to pin.
 #
-# It uses only the workflow's own token (no stored secrets) and the runner's Docker, so there is no third-party
-# action to pin. It builds, runs the same checks as the `image` job in ci.yml, and only then pushes.
+# One manual step remains after the first publish: GitHub creates the package private. Set it to public (the
+# package's settings page), because the unRAID template pulls without credentials. The Dockerfile's
+# org.opencontainers.image.source label links the package to this repository.
 
 on:
-  workflow_dispatch:
-  # push:
-  #   branches: [main]
-  #   tags: ["v*.*.*"]
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  workflow_dispatch: # to re-run from main or from a vX.Y.Z tag; any other ref is refused by scripts/image_tags.sh
 
 # Nothing by default; the one job asks for what it needs.
 permissions: {}
@@ -29,7 +28,7 @@ concurrency:
 jobs:
   publish:
     name: publish
-    if: false # DISABLED: remove this line only when the maintainer approves publishing (task 6.4)
+    if: github.repository == 'EGuthrieWasTaken/rea-mcp' # a fork's pushes must not publish
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:

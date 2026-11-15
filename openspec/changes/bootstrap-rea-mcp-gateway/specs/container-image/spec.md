@@ -36,6 +36,22 @@ repository.
 - **WHEN** the image is built with a `GHIDRA_SHA256` that does not match the downloaded archive
 - **THEN** the build fails and no image is produced
 
+### Requirement: Pinned, verified JDK where the base distribution has none
+When the base distribution does not package the JDK major version that the
+pinned Ghidra release requires, the JDK SHALL be downloaded during the image
+build from the URL given by `ARG JDK_URL`, verified against `ARG JDK_SHA256`, and
+installed in the image with `JAVA_HOME` pointing at it. The build SHALL fail if
+the SHA-256 does not match. The JDK archive SHALL NOT be committed to the
+repository.
+
+#### Scenario: JDK hash matches
+- **WHEN** the image is built with the pinned URL and hash
+- **THEN** `java -version` and `javac -version` in the image report the pinned JDK's version
+
+#### Scenario: JDK hash mismatch
+- **WHEN** the image is built with a `JDK_SHA256` that does not match the downloaded archive
+- **THEN** the build fails and no image is produced
+
 ### Requirement: Analysis toolchain present
 The final image SHALL contain a full JDK, including `javac`, of the major
 version required by the pinned Ghidra release (REA's doctor requires `javac`, so
@@ -93,6 +109,10 @@ SHALL be a writable directory under `/work`.
 #### Scenario: Unwritable work directory
 - **WHEN** `/work` is not writable by uid 99
 - **THEN** the gateway reports a clear error identifying `/work` rather than failing obscurely during analysis
+
+#### Scenario: Unwritable directory under the work directory
+- **WHEN** `/work` is writable but `/work/home` or `/work/sessions` exists and is not writable by uid 99
+- **THEN** the container reports a clear error identifying that directory rather than failing obscurely during analysis
 
 ### Requirement: Writable runtime locations
 The container SHALL provide a temporary directory at `/tmp` that uid 99 can

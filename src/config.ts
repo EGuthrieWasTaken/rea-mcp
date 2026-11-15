@@ -49,7 +49,7 @@ export const isHeapSize = (value: string): boolean => HEAP_SIZE.test(value);
 export const DEFAULT_ENV = {
   PORT: "8080",
   MAX_SESSIONS: "4",
-  SESSION_IDLE_TIMEOUT_SEC: "900",
+  SESSION_IDLE_TIMEOUT_SEC: "300",
   TRUST_PROXY: "false",
   ALLOWED_HOSTS: "",
   LOG_LEVEL: "info",
