@@ -5,7 +5,7 @@
   <Registry>https://github.com/EGuthrieWasTaken/rea-mcp/pkgs/container/rea-mcp</Registry>
   <Network>bridge</Network>
   <Shell>sh</Shell>
-  <Privileged>false</Privileged>
+  <Privileged>true</Privileged>
   <Support>https://github.com/EGuthrieWasTaken/rea-mcp/issues</Support>
   <Project>https://github.com/EGuthrieWasTaken/rea-mcp</Project>
   <Overview>A remote MCP server for reverse engineering. It serves REA (rea-agents) with Ghidra, tshark and objdump over HTTP, so Claude (a custom connector) and Claude Code can analyze files in the folder you mount at /samples. Every request needs the API key you set below, and the server will not start without a key of at least 32 characters. The container speaks plain HTTP: put it behind TLS, for example a Cloudflare Tunnel, before exposing it. It has no web page. Each session runs its own REA and Ghidra process, so size MAX_SESSIONS and GHIDRA_MAX_HEAP against your RAM. Only analyze software you are permitted to analyze.</Overview>
