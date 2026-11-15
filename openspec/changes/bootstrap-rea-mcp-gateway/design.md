@@ -349,8 +349,8 @@ fixed request header (read, not tried).
 Still **UNVERIFIED**:
 
 - Dependabot proposing a new digest when the tag moves and skipping a new Node major (its first run found nothing
-  to update); and GHCR publishing (enabled with the maintainer's approval, first run pending). The CI jobs have run on
-  GitHub, including the seeded-violation checks of task 6.2.
+  to update). The CI jobs have run on GitHub, including the seeded-violation checks of task 6.2, and the image has
+  been published to GHCR and pulled anonymously (task 6.4).
 - The claude.ai connector and interactive Claude Code against this server. Claude Code in `-p` mode was run end to
   end (`docs/DESIGN.md` section 14): each conversation gets its own session, the client never sends `DELETE /mcp`
   and the agent calls `close_binary` only when told, so finished conversations' sessions linger until the idle

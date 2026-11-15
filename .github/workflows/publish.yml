@@ -8,9 +8,9 @@ name: Publish image
 # build; the smoke test must pass), and only then pushes. It uses only the workflow's own token (no stored secrets)
 # and the runner's Docker, so there is no third-party action to pin.
 #
-# One manual step remains after the first publish: GitHub creates the package private. Set it to public (the
-# package's settings page), because the unRAID template pulls without credentials. The Dockerfile's
-# org.opencontainers.image.source label links the package to this repository.
+# The first publish (2026-11-15) came out public and an anonymous pull worked, so no manual step was needed. The
+# unRAID template pulls without credentials, so if the package is ever private, set it to public in the package's
+# settings. The Dockerfile's org.opencontainers.image.source label links the package to this repository.
 
 on:
   push:
