@@ -1615,3 +1615,41 @@ Run on 2026-11-14 on the final tree of the working branch (**Ran**).
 - **Tests.** As a non-root user in a Node 24.22.3 container: `npm run lint` and `npm run typecheck` clean, `npm test`
   359 passed, none skipped (the one skip of a root run is `it.skipIf(running as root)`).
 
+
+## 18. File transfer and result paging: evidence (change `add-file-transfer-and-result-paging`)
+
+Evidence for the change that adds upload and download tickets, an inbox and stored results. Run on 2026-11-15
+against the published image `ghcr.io/eguthriewastaken/rea-mcp:latest` (REA 6.9.0) in a throwaway container: loopback
+only, a throwaway key, `--cap-drop=ALL`, `no-new-privileges`, `/samples` an empty read-only directory, removed
+afterwards. The target was a copy of the image's own `objdump` (371,264 bytes) made inside the container as
+`/work/inbox/objdump-copy`.
+
+### 18.1 Task 1.1: REA and files outside `/samples` (**Ran**)
+
+| Check | Result |
+|---|---|
+| `open_binary` on `/work/inbox/objdump-copy` | Succeeded: `kind` `executable`, `format` `elf`, `architecture` `x86_64`. REA does not restrict paths to `/samples`. |
+| Analysis calls on that path | `list_documents` took 36.8 s (it starts Ghidra) and returned `ok`; `list_names`, `list_procedures`, `list_segments`, `list_strings`, `binary_overview`, `binary_session` and `list_unknowns` all returned `ok` afterwards, in 0.0 to 1.4 s. |
+| `structuredContent` against `content[0].text` | For all 8 tools that returned `structuredContent`, `json.loads(content[0].text)` equalled `structuredContent` exactly. Two calls with no required arguments (`list_bookmarks`, `list_architectures`) returned `isError` and had **no** `structuredContent`, only `content`. |
+| Result sizes (characters of `content[0].text`) | `list_names` 1,676,773; `list_strings` 340,324; `list_procedures` 200,484; `binary_session` 34,734; `binary_overview` 8,977; `list_documents` 3,642; `list_segments` 13,448. Results this large are the normal case for an unrestricted call, not an exception. |
+| Names of the gateway's four tools | None of `request_upload`, `upload_status`, `request_download`, `read_result` is among REA's 255 tools. The list is one page (no `nextCursor`). |
+
+What this settles: design D2's assumption that `content` carries what `structuredContent` carries held for every
+tool checked (8 of 255; the rest are **UNVERIFIED**, and the gateway removes `outputSchema` only so that a stub is not
+rejected, not because it relies on equality for anything else). An error result has no `structuredContent`, which is
+why validating clients skip errors.
+
+### 18.2 Task 1.2: Node's request timeouts (**Ran**, Node 24.22.3)
+
+A client sent a 10-byte body at one byte per 400 ms (about 4 s) to a plain `node:http` server whose
+`connectionsCheckingInterval` was 100 ms:
+
+| Server options | Outcome |
+|---|---|
+| `requestTimeout: 1000`, `headersTimeout: 800` | `408 Request Timeout`: the whole-request limit cut the slow body |
+| `requestTimeout: 0`, `headersTimeout: 800` | `200 OK`: the body finished |
+| `requestTimeout: 0`, `headersTimeout: 800`, headers never finished | `408 Request Timeout`: `headersTimeout` still applies |
+
+So setting `requestTimeout` to `0` removes the 300 s default whole-request limit (a 76 MiB upload over a slow uplink
+would exceed it) without removing the header limit. The gateway's own no-progress limit on the transfer routes
+replaces it there.

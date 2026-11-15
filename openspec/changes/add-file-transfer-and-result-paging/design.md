@@ -363,13 +363,14 @@ Collected 2026-11-15 against the published image `ghcr.io/eguthriewastaken/rea-m
    (recalled, not checked against its documentation here), which is close to the one
    observed failure at 58,842 characters of dense text. The cap of the claude.ai
    connector is unknown. `40000` is a guess below the one failure, not a derived number.
-2. `structuredContent` always repeats the parsed `content` text for REA's tools. Seen
-   for `open_binary` and `list_strings` only (task 1.1 checks more before D2 is relied on).
+2. `structuredContent` always repeats the parsed `content` text for REA's tools. **Checked
+   for 8 tools on 2026-11-15 (all equal; `docs/DESIGN.md` 18.1)**; the other 247 are unchecked.
+   An error result has no `structuredContent`.
 3. Whether Claude Code and the claude.ai connector validate `outputSchema` the way the
    SDK's client does. Claude Code is believed to be built on that client; not checked.
    Removing the schemas is safe either way.
-4. Node 24 treats `requestTimeout = 0` as no whole-request limit while `headersTimeout`
-   still applies (from Node's documentation as remembered; task 4.1 tests it).
+4. ~~Node 24 treats `requestTimeout = 0` as no whole-request limit while `headersTimeout`
+   still applies.~~ **Verified 2026-11-15 on Node 24.22.3 (`docs/DESIGN.md` 18.2).**
 5. Cloudflare's request-body limit through a proxied hostname, believed to be 100 MB on
    the Free and Pro plans. Not checked. `MAX_UPLOAD_BYTES` can exceed it; the symptom
    would be a Cloudflare-generated `413` before the request reaches the gateway.
@@ -383,7 +384,8 @@ Collected 2026-11-15 against the published image `ghcr.io/eguthriewastaken/rea-m
 9. Whether Ghidra checkpoints are keyed by a file's content or its path. If by path,
    replacing an inbox file under the same name could confuse a later open; `overwrite`
    defaults to false for that reason.
-10. REA analysis calls (not only `open_binary`) work on files under `/work/inbox`.
+10. ~~REA analysis calls (not only `open_binary`) work on files under `/work/inbox`.~~ **Verified
+    2026-11-15: Ghidra-backed calls succeeded (`docs/DESIGN.md` 18.1).**
 
 ## Open Questions
 

@@ -7,8 +7,8 @@ written as UNVERIFIED.
 
 ## 1. Evidence before building
 
-- [ ] 1.1 In a throwaway container from the published image (loopback, throwaway key, removed afterwards): run analysis calls, not only `open_binary`, on a file under `/work/inbox`; for at least ten different tools check whether `structuredContent` equals the parsed `content[0].text`; confirm again that no REA tool is named `request_upload`, `upload_status`, `request_download` or `read_result`; record the results and the exact commands in a new section of `docs/DESIGN.md`. **If `structuredContent` differs from `content` for any tool, stop and put it to the maintainer, because design D2 assumes they match**
-- [ ] 1.2 With Node 24, show that a request body sent for longer than a small `requestTimeout` is cut when the option is set and completes when it is `0`, with `headersTimeout` still in force; record it in `docs/DESIGN.md` and settle design assumption 4
+- [x] 1.1 In a throwaway container from the published image (loopback, throwaway key, removed afterwards): run analysis calls, not only `open_binary`, on a file under `/work/inbox`; for at least ten different tools check whether `structuredContent` equals the parsed `content[0].text`; confirm again that no REA tool is named `request_upload`, `upload_status`, `request_download` or `read_result`; record the results and the exact commands in a new section of `docs/DESIGN.md`. **If `structuredContent` differs from `content` for any tool, stop and put it to the maintainer, because design D2 assumes they match**
+- [x] 1.2 With Node 24, show that a request body sent for longer than a small `requestTimeout` is cut when the option is set and completes when it is `0`, with `headersTimeout` still in force; record it in `docs/DESIGN.md` and settle design assumption 4
 
 ## 2. Configuration and image
 
