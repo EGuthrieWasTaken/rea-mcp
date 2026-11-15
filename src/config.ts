@@ -32,6 +32,23 @@ export interface Config {
    * Handed to REA as GHIDRA_HEADLESS_MAXMEM. Unset leaves REA's own default (2G).
    */
   readonly ghidraMaxHeap: string | undefined;
+  /**
+   * PUBLIC_BASE_URL: the origin (scheme, host, optional port) that upload and download URLs are built on, as the
+   * operator wrote it but normalised (spec: file-transfer, "Public URL construction"). Unset means "work it out
+   * from the request".
+   */
+  readonly publicBaseUrl: string | undefined;
+  /** MAX_UPLOAD_BYTES: the largest single upload. */
+  readonly maxUploadBytes: number;
+  /** INBOX_MAX_BYTES: the most that /work/inbox may hold, counting uploads still in progress. */
+  readonly inboxMaxBytes: number;
+  /** TRANSFER_TICKET_TTL_SEC: how long an unused upload or download ticket stays valid. */
+  readonly transferTicketTtlSec: number;
+  /**
+   * RESULT_INLINE_LIMIT_CHARS: a tool result whose serialized JSON is longer than this is stored and replaced by a stub
+   * (spec: result-paging). 0 turns replacement off.
+   */
+  readonly resultInlineLimitChars: number;
 }
 
 /**
@@ -53,6 +70,13 @@ export const DEFAULT_ENV = {
   TRUST_PROXY: "false",
   ALLOWED_HOSTS: "",
   LOG_LEVEL: "info",
+  // File transfer and result paging (specs: file-transfer, result-paging). PUBLIC_BASE_URL is empty because the right
+  // value is the address the operator's clients use.
+  PUBLIC_BASE_URL: "",
+  MAX_UPLOAD_BYTES: "268435456",
+  INBOX_MAX_BYTES: "4294967296",
+  TRANSFER_TICKET_TTL_SEC: "900",
+  RESULT_INLINE_LIMIT_CHARS: "40000",
   // These have no default: unset means REA's own behaviour (a 2G heap, its default
   // startup deadline, no checkpointing). They are listed so the unRAID template check can
   // compare every advanced variable, and so a blank value reads as unset.
@@ -86,7 +110,7 @@ const integer = (
   max: number,
 ): number => {
   const raw = read(env, name) ?? DEFAULT_ENV[name];
-  if (!/^\d{1,15}$/.test(raw)) {
+  if (!/^\d{1,16}$/.test(raw)) {
     throw new ConfigError(name, `must be an integer from ${min} to ${max}`);
   }
   const value = Number(raw);
@@ -160,6 +184,41 @@ const checkpointDir = (env: Environment): string | undefined => {
   return raw;
 };
 
+/** Smallest non-zero RESULT_INLINE_LIMIT_CHARS: the stub's own preview (2000 characters) must fit inside it. */
+export const MIN_INLINE_LIMIT = 2000;
+
+const resultInlineLimit = (env: Environment): number => {
+  const value = integer(env, "RESULT_INLINE_LIMIT_CHARS", 0, 10_000_000);
+  if (value !== 0 && value < MIN_INLINE_LIMIT) {
+    throw new ConfigError("RESULT_INLINE_LIMIT_CHARS", `must be 0 (off) or an integer from ${MIN_INLINE_LIMIT} to 10000000`);
+  }
+  return value;
+};
+
+/** An http(s) origin with nothing after the host: no path, query, fragment or credentials. */
+const publicBaseUrl = (env: Environment): string | undefined => {
+  const raw = read(env, "PUBLIC_BASE_URL");
+  if (raw === undefined) return undefined;
+  const rule = "must be an http or https URL with a host and nothing else: no path, query, fragment or credentials";
+  if (/[?#\s]/.test(raw)) throw new ConfigError("PUBLIC_BASE_URL", rule);
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new ConfigError("PUBLIC_BASE_URL", rule);
+  }
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    url.host === "" ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.pathname !== "/"
+  ) {
+    throw new ConfigError("PUBLIC_BASE_URL", rule);
+  }
+  return url.origin;
+};
+
 export function loadConfig(env: Environment): Config {
   return {
     port: integer(env, "PORT", 1, 65535),
@@ -171,5 +230,10 @@ export function loadConfig(env: Environment): Config {
     workDir: workDir(env),
     checkpointDir: checkpointDir(env),
     ghidraMaxHeap: ghidraMaxHeap(env),
+    publicBaseUrl: publicBaseUrl(env),
+    maxUploadBytes: integer(env, "MAX_UPLOAD_BYTES", 1, 2 ** 40),
+    inboxMaxBytes: integer(env, "INBOX_MAX_BYTES", 1, 2 ** 50),
+    transferTicketTtlSec: integer(env, "TRANSFER_TICKET_TTL_SEC", 30, 86_400),
+    resultInlineLimitChars: resultInlineLimit(env),
   };
 }

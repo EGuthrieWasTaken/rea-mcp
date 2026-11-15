@@ -6,7 +6,7 @@
 > passes the smoke test (section 12); Claude Code has been run end to end against the container (section 14); and the claude.ai connector and a Cloudflare
 > Tunnel are still to do.
 > Section 13 is the current list of what is **UNVERIFIED**. The decisions that shape the specs live in
-> [`openspec/changes/bootstrap-rea-mcp-gateway/design.md`](../openspec/changes/bootstrap-rea-mcp-gateway/design.md);
+> [`openspec/changes/archive/2026-11-15-bootstrap-rea-mcp-gateway/design.md`](../openspec/changes/archive/2026-11-15-bootstrap-rea-mcp-gateway/design.md);
 > this document records the evidence behind them. User-facing guidance is in the
 > [README](../README.md), [`SECURITY.md`](SECURITY.md) and [`CLOUDFLARE.md`](CLOUDFLARE.md).
 
@@ -1615,3 +1615,158 @@ Run on 2026-11-14 on the final tree of the working branch (**Ran**).
 - **Tests.** As a non-root user in a Node 24.22.3 container: `npm run lint` and `npm run typecheck` clean, `npm test`
   359 passed, none skipped (the one skip of a root run is `it.skipIf(running as root)`).
 
+
+## 18. File transfer and result paging: evidence (change `add-file-transfer-and-result-paging`)
+
+Evidence for the change that adds upload and download tickets, an inbox and stored results. Run on 2026-11-15
+against the published image `ghcr.io/eguthriewastaken/rea-mcp:latest` (REA 6.9.0) in a throwaway container: loopback
+only, a throwaway key, `--cap-drop=ALL`, `no-new-privileges`, `/samples` an empty read-only directory, removed
+afterwards. The target was a copy of the image's own `objdump` (371,264 bytes) made inside the container as
+`/work/inbox/objdump-copy`.
+
+### 18.1 Task 1.1: REA and files outside `/samples` (**Ran**)
+
+| Check | Result |
+|---|---|
+| `open_binary` on `/work/inbox/objdump-copy` | Succeeded: `kind` `executable`, `format` `elf`, `architecture` `x86_64`. REA does not restrict paths to `/samples`. |
+| Analysis calls on that path | `list_documents` took 36.8 s (it starts Ghidra) and returned `ok`; `list_names`, `list_procedures`, `list_segments`, `list_strings`, `binary_overview`, `binary_session` and `list_unknowns` all returned `ok` afterwards, in 0.0 to 1.4 s. |
+| `structuredContent` against `content[0].text` | For all 8 tools that returned `structuredContent`, `json.loads(content[0].text)` equalled `structuredContent` exactly. Two calls with no required arguments (`list_bookmarks`, `list_architectures`) returned `isError` and had **no** `structuredContent`, only `content`. |
+| Result sizes (characters of `content[0].text`) | `list_names` 1,676,773; `list_strings` 340,324; `list_procedures` 200,484; `binary_session` 34,734; `binary_overview` 8,977; `list_documents` 3,642; `list_segments` 13,448. Results this large are the normal case for an unrestricted call, not an exception. |
+| Names of the gateway's four tools | None of `request_upload`, `upload_status`, `request_download`, `read_result` is among REA's 255 tools. The list is one page (no `nextCursor`). |
+
+What this settles: design D2's assumption that `content` carries what `structuredContent` carries held for every
+tool checked (8 of 255; the rest are **UNVERIFIED**, and the gateway removes `outputSchema` only so that a stub is not
+rejected, not because it relies on equality for anything else). An error result has no `structuredContent`, which is
+why validating clients skip errors.
+
+### 18.2 Task 1.2: Node's request timeouts (**Ran**, Node 24.22.3)
+
+A client sent a 10-byte body at one byte per 400 ms (about 4 s) to a plain `node:http` server whose
+`connectionsCheckingInterval` was 100 ms:
+
+| Server options | Outcome |
+|---|---|
+| `requestTimeout: 1000`, `headersTimeout: 800` | `408 Request Timeout`: the whole-request limit cut the slow body |
+| `requestTimeout: 0`, `headersTimeout: 800` | `200 OK`: the body finished |
+| `requestTimeout: 0`, `headersTimeout: 800`, headers never finished | `408 Request Timeout`: `headersTimeout` still applies |
+
+So setting `requestTimeout` to `0` removes the 300 s default whole-request limit (a 76 MiB upload over a slow uplink
+would exceed it) without removing the header limit. The gateway's own no-progress limit on the transfer routes
+replaces it there.
+
+### 18.3 The connector test that led to this change (**Reported**, with what the gateway log showed)
+
+On 2026-11-14/15 the maintainer ran an unattended agent session on the deployed container through the claude.ai
+custom connector and a Cloudflare Tunnel, from a test plan of numbered stages. These results are **Reported** by the
+maintainer and read from the gateway's own log on their host; the maintainer's report is not part of the repository.
+
+| Finding | Detail |
+|---|---|
+| Stages 0 to 5 passed | The connector listed REA's tools and the agent opened and analysed the small samples. |
+| Stage 6 timed out on the client | Opening and analysing a 76 MiB DLL: the client gave up about **183 s** into the call. The gateway log showed the call still running. |
+| The tunnel was not the limit | Requests of about 170 s and about 300 s returned `200` through the same tunnel, so the cut-off is the client's. |
+| A result was too big | A **58,842-character** `objdump` result exceeded the client's output cap. |
+
+What this change does about each: the first row is not addressed (a longer or smaller call is a separate change:
+checkpoints on, progress heartbeats, or a start-and-poll pattern); the last is the oversized-result handling of
+section 18.1 and the `result-paging` spec. The client's own limits (an output cap that Claude Code is believed to
+default to 25,000 tokens, and the call timeout) are **UNVERIFIED** here.
+
+### 18.4 Where this differs from `claude-files`, which it follows
+
+The upload and ranged-read designs come from the maintainer's `claude-files` project (read in full on 2026-11-15; no
+code is copied or depended on). Differences, and why:
+
+| `claude-files` | here | Why |
+|---|---|---|
+| Keeps the ticket secret | Keeps only its SHA-256 | A memory dump of the process then yields no usable URL |
+| Reads whole files into memory, counts characters | Positioned reads, counts bytes, never splits a character | A stored result can be tens of megabytes |
+| Upload target is a path under a vault, `overwrite` defaults to true | A file name in one flat inbox, `overwrite` defaults to **false** | A file name is how the agent refers to a binary; replacing it under a running analysis would confuse the session |
+| JSON body for read results | Metadata item, then the raw slice | Text that is itself JSON would be escaped, and about a tenth longer, for nothing |
+| One FastAPI process with a rate limit on its own routes | The existing failed-attempt limiter, shared with `/mcp` | One budget for everything that can be guessed |
+| Tools are the server's own | Tools are added to a relayed REA list, and REA's `outputSchema` is removed | REA's results must stay valid for clients that validate (18.1) |
+
+### 18.5 Verification on the built image (tasks 8.1 to 8.4) (**Ran**)
+
+Run on 2026-11-15 against an image built from this branch (`docker build -f docker/Dockerfile`), started as the unRAID
+template starts it: `--cap-drop=ALL`, `--security-opt=no-new-privileges:true`, `--memory=6g`, `--pids-limit=1024`,
+`/samples` mounted `:ro`, `/work` a bind mount owned by 99:100, `LOG_LEVEL=debug`, a throwaway key, loopback only. A small
+MCP client drove it over raw streamable HTTP and ran each `curl_command` **exactly as the tool returned it**, with only
+its placeholder filled in. The containers were removed afterwards. The entrypoint created `/work/inbox` (`drwxr-x---`) and
+`/work/results` (`drwx------`) on an empty `/work`.
+
+**8.1, uploading and opening.**
+
+| Check | Result |
+|---|---|
+| Tool list | 259 tools: REA's 255 and the four gateway tools; none has an `outputSchema` |
+| A 76 MiB upload (79,691,776 bytes of random data) | `request_upload`, then its `curl_command`: HTTP 200 in 0.4 s; the `size` and `sha256` curl printed equal the local file's; the file in `/work/inbox` has the same hash, mode `0640` (no execute bit); `upload_status` says `complete`; the same URL used again is `409` |
+| Gateway memory during that upload | The node process's RSS was 144 MiB before and 144 MiB at its peak, sampled every 0.15 s, with the upload rate-limited to 30 MB/s so it lasted 2.1 s: **no growth** for a 76 MiB body. (A first measurement picked up `tini` instead of node and is not counted.) |
+| A real 26 MiB ELF (`libjvm.so`, 27,056,488 bytes) | Uploaded with curl; `open_binary` on the returned path opened it (`elf`, `x86_64`) and REA's `sha256` is the one curl printed |
+| The log (at `debug`) | No upload secret, no `/upload/` path, no file name and no API key anywhere; the request log's paths are the labels `/healthz`, `/mcp` and `/upload`; the transfer messages are `upload ticket issued`, `upload started`, `upload complete` |
+
+**8.2, a large result.** A 371,264-byte program (`objdump`) was uploaded and opened; `binary_overview` (8,989 characters)
+came back whole with its `structuredContent`; `list_strings` came back as a **2,639-character stub** for a result of
+340,336 characters (`truncated`, `stored`, `result_id`, a 2000-character preview, no `structuredContent`, REA's
+`untrusted_content` marking kept). `/work/results/<session>/<id>.txt` held the 340,336 bytes with mode `-rw-------`.
+Paging with `read_result` took **9 calls** and reassembled exactly 340,336 bytes; `request_download` and its `curl_command`
+fetched the same bytes, and the SHA-256 of the download, the one the tool promised and the one of the paged text were equal;
+a second use of the download URL was `409`. After `DELETE /mcp` the session's results directory was gone and an
+unused download URL of that session answered `404`.
+
+**8.3, refusals** (a second container with `ALLOWED_HOSTS=rea.example`, `TRANSFER_TICKET_TTL_SEC=30`):
+
+| Request | Answer |
+|---|---|
+| Upload URL with a `Host` that is not allowed | `403`, and the ticket stayed `pending` and then worked with the allowed `Host` |
+| 5000 bytes against a 1000-byte ticket, with a `Content-Length` and chunked | `413` both times; the ticket is `failed` (`too_large`); nothing and no temporary file left in the inbox |
+| A body whose hash is not the promised one | `422`; nothing saved |
+| A wrong secret for a real id, and an unknown id | the same bare `404`: same status line, same headers (apart from `Date`), empty body |
+| The API key as a ticket secret; a ticket secret as `x-api-key` | `404`; `401` |
+| Ten failed attempts from one source (four of them from the checks above) | the eleventh and later `429` with `Retry-After: 60`, **including a request with the correct secret** |
+| An upload URL used after its 30 s lifetime | `410` with `"expired"`; `upload_status` says `expired` |
+
+**8.4, idle reaping** (same container, `SESSION_IDLE_TIMEOUT_SEC=10`): a session that sent nothing for 25 s was gone; a
+session that asked for a 40 MiB upload and then sent nothing at all while `curl --limit-rate 2M` took **20 s** (twice the
+idle timeout) was still there when the upload ended, and was reaped about 10 s after that. (A first run polled the session
+every few seconds, which is itself activity, and proved nothing; it was redone without polling.) With the transfer check
+disabled in the source, the unit test for this fails (a mutation check).
+
+### 18.6 Claude Code against the built image (task 8.5) (**Ran**)
+
+Run on 2026-11-15 with Claude Code 2.1.319 in `claude -p` mode (model `haiku`, **subscription login only**: no
+`ANTHROPIC_API_KEY` or auth token was set, so nothing was charged to an API balance; the CLI itself printed a notional
+`$0.22`), against the same hardened container as 18.5. The MCP server was passed with `--strict-mcp-config` and the key
+through `${...}` expansion, the base tools were limited to `Bash`, and the only allowed shell command was `Bash(curl:*)`.
+The agent was told what to do in five steps and to report anything that confused it.
+
+- It saw **259 tools** at the start (none deferred) and made 8 tool calls in 9 turns with no error: `request_upload`;
+  `Bash` running the `curl_command` as returned, with `./sample-objdump` for the placeholder; `Bash` running `sha256sum`
+  on its own, because the tool result's `next_steps` suggested it; `open_binary` on `/work/inbox/sample-objdump`;
+  `list_strings`, which came back as a stub (`340,328` bytes); `read_result` at offset 0 and then at the `next_offset` of
+  40000; and `close_binary`.
+- It reported the upload's size and SHA-256 matching its own, that the file opened as an x86_64 ELF, the total size of the
+  stored result, and the start of the first page.
+- **What confused it:** the `read_result` answer puts a small JSON item (offsets and sizes) before the slice, so "the first
+  page" is not the first bytes of the answer; it worked this out and quoted the slice. It also said it read only two pages
+  because the task said two. Neither is a defect; the tool description already says what the two items are.
+- The container's log held no secret, no `/upload/` path and no file name after the run.
+
+### 18.7 Reconciling the specs with what was built (task 9.1)
+
+The specs of this change were compared with the code on 2026-11-15 after the checks of 18.5 and 18.6. Every requirement
+had a test or a run above. The differences found, and what was done (the maintainer's instruction for this work was
+"use your recommendations", so each was settled that way):
+
+| Difference | What was done |
+|---|---|
+| A file name with an unpaired surrogate (not valid text) is refused, and the spec's list of refused names did not say so | The `file-transfer` requirement "Upload file names" now says valid Unicode text is required |
+| Finished and expired tickets were forgotten only when a new ticket was minted, so a stale ticket could still be found by `upload_status` | A lookup now forgets them first (code and a test changed; the spec was right) |
+| `read_result` at an `offset` equal to the size returns an empty slice with `next_offset` null; only an offset past the size is an error | None needed: that is what the spec says ("past the end") |
+| The stub's `chars` counts UTF-16 code units (a JavaScript string's length), which differs from a count of characters for text with characters outside the Basic Multilingual Plane | Documented in `src/results/store.ts`; the spec says "characters" for the stub's size and the 2000-character preview, and the preview never splits a surrogate pair |
+| A cancelled gateway-tool call was covered by the code but not by a test | A test was added (the answer never arrives on the stream) |
+| The smoke test did not cover the new routes | `scripts/smoke_test.sh` now lists the four tools, checks an unknown ticket is a bare 404, uploads once with `request_upload` and `curl`, checks reuse is `409`, and checks the log (18.5) |
+| `request_upload` and `request_download` return `url_source`, `result_id` and `next_steps` beyond what the specs list | None needed: the specs list required fields, not all fields |
+
+Not done, and left for the maintainer (task 9.3): an upload through the Cloudflare Tunnel, which decides the assumptions about
+the request-body limit, Cloudflare Access and the agent sandbox's reach (design, "Unverified assumptions" 5 to 7).

@@ -19,6 +19,13 @@ export function hostOf(header: string | undefined): string | undefined {
   return host.endsWith(".") ? host.slice(0, -1) : host;
 }
 
+/** A Host header (or X-Forwarded-Host) value, lower-cased and with any port kept, or undefined if it is malformed. */
+export function wellFormedHost(header: string | undefined): string | undefined {
+  if (header === undefined) return undefined;
+  const text = header.toLowerCase();
+  return HOST_HEADER.test(text) ? text : undefined;
+}
+
 export interface HostCheck {
   /** Whether a /mcp request with this Host header may proceed. */
   allows(hostHeader: string | undefined): boolean;

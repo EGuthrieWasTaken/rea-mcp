@@ -6,8 +6,9 @@
 #    cannot, instead of letting the first analysis fail obscurely. A bind mount owned by root is the
 #    usual cause. It tests by creating a file, which also catches read-only mounts and ACLs that
 #    `test -w` misses.
-# 2. Creates /work/home (the user's HOME) and /work/sessions (one directory per MCP session), which
-#    are missing whenever an empty directory is mounted over /work.
+# 2. Creates /work/home (the user's HOME), /work/sessions (one directory per MCP session), /work/inbox
+#    (files the agent uploads) and /work/results (large tool results kept for the session that made them),
+#    which are missing whenever an empty directory is mounted over /work.
 # 3. Replaces itself with the command it was given (the gateway), so signals from tini reach it.
 #
 # Errors are written to stdout as one JSON object per line, in the same shape as the gateway's own log,
@@ -37,8 +38,10 @@ require_writable() {
 require_writable /work "persistent output, per-session directories and the optional checkpoint root"
 require_writable /tmp "each Ghidra session's private runtime"
 
-for dir in /work/home /work/sessions; do
-  if ! mkdir -p -m 0700 "$dir" 2>/dev/null; then
+# The inbox is 0750 so the `users` group can look at what was uploaded from the unRAID share; the rest are 0700.
+for spec in home:0700 sessions:0700 inbox:0750 results:0700; do
+  dir="/work/${spec%%:*}"
+  if ! mkdir -p -m "${spec##*:}" "$dir" 2>/dev/null; then
     fail "a directory the gateway needs cannot be created" "$dir" \
       "$dir could not be created under /work, which is writable. Something else may already exist at that path."
   fi
@@ -46,6 +49,8 @@ done
 # They may already exist, for example from a run as another user, so check them as well.
 require_writable /work/home "the runtime user's HOME"
 require_writable /work/sessions "one working directory per MCP session"
+require_writable /work/inbox "files the agent uploads"
+require_writable /work/results "large tool results, kept for the session that made them"
 
 [ "$#" -gt 0 ] || fail "no command to run" "" "the container was started without a command; the image's default is node /app/dist/main.js"
 exec "$@"

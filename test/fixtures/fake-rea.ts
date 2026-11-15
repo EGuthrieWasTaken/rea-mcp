@@ -8,10 +8,14 @@
 //   --ignore-eof              ignore stdin EOF only: SIGTERM still stops it
 //   --exit-delay-ms=N         after stdin EOF or SIGTERM, wait N ms, then exit
 //                             (stands in for REA saving a checkpoint on close)
+//   --output-schemas          every tool declares a strict outputSchema and every result carries a matching
+//                             structuredContent, as REA's do (docs/DESIGN.md 18)
+//   --paginate                tools/list answers in two pages, the first with a nextCursor
+//   --extra-tool=NAME         one more tool, with this name (for a clash with the gateway's own tools)
 //
 // Exit codes tell a test what stopped it: 0 after stdin EOF, 143 after SIGTERM.
 //
-// Tools: echo, slow, crash, env, cwd, pid, grandchild, log, stats.
+// Tools: echo, slow, crash, env, cwd, pid, grandchild, log, stats, big.
 import { spawn } from "node:child_process";
 import { ReadBuffer, serializeMessage } from "@modelcontextprotocol/sdk/shared/stdio.js";
 import {
@@ -36,17 +40,36 @@ const send = (message: JSONRPCMessage): void => {
 const reply = (id: RequestId, result: Params): void => send({ jsonrpc: "2.0", id, result });
 const fail = (id: RequestId, code: number, message: string): void =>
   send({ jsonrpc: "2.0", id, error: { code, message } });
-const text = (value: string): Params => ({ content: [{ type: "text", text: value }] });
+const strictResults = flag("output-schemas");
+const text = (value: string): Params =>
+  strictResults
+    ? { content: [{ type: "text", text: value }], structuredContent: { result: value } }
+    : { content: [{ type: "text", text: value }] };
 // Tool arguments arrive as JSON, so anything may be in them: take only real strings.
 const asString = (value: unknown): string => (typeof value === "string" ? value : "");
 
-const TOOLS = ["echo", "slow", "crash", "env", "cwd", "pid", "grandchild", "log", "stats"].map((name) => ({
-  name,
-  description: `fake-rea tool ${name}`,
-  inputSchema: { type: "object", properties: {} },
-}));
+const extraTool = args.find((argument) => argument.startsWith("--extra-tool="))?.split("=")[1];
+const TOOLS = ["echo", "slow", "crash", "env", "cwd", "pid", "grandchild", "log", "stats", "big", ...(extraTool === undefined ? [] : [extraTool])].map(
+  (name) => ({
+    name,
+    description: `fake-rea tool ${name}`,
+    inputSchema: { type: "object", properties: {} },
+    ...(strictResults
+      ? {
+          outputSchema: {
+            type: "object",
+            properties: { result: { type: "string" } },
+            required: ["result"],
+            additionalProperties: false,
+          },
+        }
+      : {}),
+  }),
+);
 
 const counters = { requests: 0, cancelled: 0 };
+// The names of the tools it has been asked to call, in order.
+const called: string[] = [];
 // Cancel handlers for requests that are still in flight, by request id.
 const inFlight = new Map<RequestId, () => void>();
 
@@ -79,6 +102,7 @@ const slow = (id: RequestId, params: Params, progressToken: unknown): void => {
 
 const callTool = (id: RequestId, params: Params): void => {
   const name = String(params.name);
+  called.push(name);
   const toolArguments = (params.arguments ?? {}) as Params;
   const progressToken = (params._meta as Params | undefined)?.progressToken;
   switch (name) {
@@ -115,8 +139,22 @@ const callTool = (id: RequestId, params: Params): void => {
       reply(id, text("logged"));
       return;
     case "stats":
-      reply(id, text(JSON.stringify({ ...counters, inFlight: inFlight.size })));
+      reply(id, text(JSON.stringify({ ...counters, inFlight: inFlight.size, called })));
       return;
+    case "big": {
+      // A result of `chars` characters, as REA's are when nothing limits them, carrying REA's untrusted-content marking.
+      // `unicode` puts a three-byte character at every tenth position; `error` makes it an error result.
+      const chars = Number(toolArguments.chars ?? 100_000);
+      const unit = toolArguments.unicode === true ? "0123456789abcdef日" : "0123456789abcdef";
+      const body = unit.repeat(Math.ceil(chars / unit.length)).slice(0, chars);
+      const result = text(body);
+      reply(id, {
+        ...result,
+        _meta: { provenance: { untrusted_content: true, source: "analysis_target" } },
+        ...(toolArguments.error === true ? { isError: true } : {}),
+      });
+      return;
+    }
     default:
       fail(id, -32602, `unknown tool ${name}`);
   }
@@ -146,7 +184,12 @@ const handle = (message: JSONRPCMessage): void => {
       });
       return;
     case "tools/list":
-      reply(message.id, { tools: TOOLS });
+      if (flag("paginate")) {
+        const second = params.cursor === "page2";
+        reply(message.id, second ? { tools: TOOLS.slice(3) } : { tools: TOOLS.slice(0, 3), nextCursor: "page2" });
+      } else {
+        reply(message.id, { tools: TOOLS });
+      }
       return;
     case "tools/call":
       callTool(message.id, params);

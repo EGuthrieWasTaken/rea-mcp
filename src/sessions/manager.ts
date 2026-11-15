@@ -26,10 +26,12 @@ import {
   type JSONRPCRequest,
   type RequestId,
 } from "@modelcontextprotocol/sdk/types.js";
+import type { SessionGateway, ToolReply } from "../gateway-tools/index.js";
 import type { McpHandler } from "../http/server.js";
 import type { Logger } from "../logger.js";
 import { ReaChild, TERM_WAIT_MS, type ChildExit } from "../rea/child.js";
 import type { ReaLaunch } from "../rea/launch.js";
+import type { RequestOrigin } from "../transfer/url.js";
 
 export interface SessionManagerOptions {
   logger: Logger;
@@ -54,14 +56,28 @@ export interface SessionManagerOptions {
   initializeTimeoutMs?: number;
   /** Largest request body accepted. Default 16 MiB, REA's own request ceiling. */
   maxBodyBytes?: number;
+  /**
+   * The gateway's own tools and result replacement (specs: file-transfer, result-paging). Absent, every message is relayed
+   * as it is.
+   */
+  gateway?: SessionGateway;
+}
+
+/** A request the client has sent that has not been answered yet. */
+interface Pending {
+  /** The progress token the client sent with it, if any. */
+  readonly token: string | number | undefined;
+  readonly method: string;
+  /** For `tools/call`, the name of the tool. */
+  readonly tool: string | undefined;
 }
 
 interface Session {
   readonly id: string;
   readonly child: ReaChild;
   readonly transport: StreamableHTTPServerTransport;
-  /** Requests the client has sent that REA has not answered yet, each with the progress token it sent, if any. */
-  readonly inFlight: Map<RequestId, string | number | undefined>;
+  /** Requests the client has sent that have not been answered yet (by REA or, for the gateway's own tools, by the gateway). */
+  readonly inFlight: Map<RequestId, Pending>;
   /**
    * progressToken -> the request it belongs to. REA's progress notifications carry only
    * the token, and the SDK puts a notification on a request's stream only when told which
@@ -70,8 +86,20 @@ interface Session {
   readonly progressTokens: Map<string | number, RequestId>;
   /** performance.now() of the last request or answer; the idle timer counts from here. */
   lastActivity: number;
+  /** The headers of the latest authenticated request that a ticket URL may be built from. Never logged. */
+  origin: RequestOrigin;
   ended: boolean;
 }
+
+const firstHeader = (value: string | string[] | undefined): string | undefined => (Array.isArray(value) ? value[0] : value);
+
+const originOf = (req: IncomingMessage): RequestOrigin => ({
+  host: firstHeader(req.headers.host),
+  forwardedProto: firstHeader(req.headers["x-forwarded-proto"]),
+  forwardedHost: firstHeader(req.headers["x-forwarded-host"]),
+});
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
 const errorCode = (error: unknown): string =>
   error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : "unknown error";
@@ -118,7 +146,8 @@ const readBody = (req: IncomingMessage, limit: number): Promise<Body> =>
 
 export class SessionManager {
   private readonly sessions = new Map<string, Session>();
-  private readonly options: Required<Omit<SessionManagerOptions, "logger" | "launch" | "sessionsDir">>;
+  private readonly options: Required<Omit<SessionManagerOptions, "logger" | "launch" | "sessionsDir" | "gateway">>;
+  private readonly gateway: SessionGateway | undefined;
   private readonly logger: Logger;
   private readonly launch: ReaLaunch;
   private readonly sessionsDir: string;
@@ -132,6 +161,7 @@ export class SessionManager {
     this.logger = options.logger;
     this.launch = options.launch;
     this.sessionsDir = options.sessionsDir;
+    this.gateway = options.gateway;
     this.options = {
       terminationGraceMs: options.terminationGraceMs ?? 5_000,
       termWaitMs: options.termWaitMs ?? TERM_WAIT_MS,
@@ -163,6 +193,12 @@ export class SessionManager {
     return this.attempts;
   }
 
+  /** Count something that happened outside /mcp, such as a transfer ending, as activity for a session. */
+  touch(sessionId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (session !== undefined) session.lastActivity = performance.now();
+  }
+
   /** From now on no new session is started; sessions already live are unaffected until closeAll. */
   beginShutdown(): void {
     this.shuttingDown = true;
@@ -186,6 +222,7 @@ export class SessionManager {
       // Reaching here means the request was authenticated: only then does it count as
       // activity. (An open GET stream is not activity beyond the request that opened it.)
       session.lastActivity = performance.now();
+      session.origin = originOf(req);
       return session.transport.handleRequest(req, res);
     }
 
@@ -206,6 +243,7 @@ export class SessionManager {
     }
     if (session === undefined) return notFound(res);
     session.lastActivity = performance.now();
+    session.origin = originOf(req);
     return session.transport.handleRequest(req, res, parsed);
   }
 
@@ -299,6 +337,7 @@ export class SessionManager {
       inFlight: new Map(),
       progressTokens: new Map(),
       lastActivity: performance.now(),
+      origin: originOf(req),
       ended: false,
     };
 
@@ -312,20 +351,11 @@ export class SessionManager {
         return;
       }
       this.track(session, message);
+      if (this.answerLocally(session, message)) return;
       this.forward(session, message);
     };
     transport.onclose = () => void this.end(session, "transport closed");
-    child.onmessage = (message) => {
-      // An answer from REA ends its request, and the idle timer restarts from here.
-      if (
-        (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) &&
-        message.id !== undefined &&
-        this.finish(session, message.id)
-      ) {
-        session.lastActivity = performance.now();
-      }
-      this.deliver(session, message);
-    };
+    child.onmessage = (message) => this.fromChild(session, message);
     child.onexit = (exit) => void this.childExited(session, exit);
 
     this.sessions.set(sessionId, session);
@@ -387,12 +417,113 @@ export class SessionManager {
     });
   }
 
+  /**
+   * A `tools/call` for one of the gateway's own tools is answered here and never reaches REA. Returns whether the message
+   * was one. The call is answered once: if the session ended or the client cancelled meanwhile, nothing is sent.
+   */
+  private answerLocally(session: Session, message: JSONRPCMessage): boolean {
+    const gateway = this.gateway;
+    if (gateway === undefined || !isJSONRPCRequest(message) || message.method !== "tools/call") return false;
+    const name = message.params?.name;
+    if (typeof name !== "string" || !gateway.toolNames.has(name)) return false;
+    const id = message.id;
+    void gateway
+      .callTool(name, message.params?.arguments, { sessionId: session.id, origin: session.origin })
+      .catch(
+        (error: unknown): ToolReply => {
+          this.logger.error("a gateway tool failed", { sessionId: session.id, tool: name, reason: error instanceof Error ? error.name : "unknown error" });
+          return { content: [{ type: "text", text: "The tool failed. Try again." }], isError: true };
+        },
+      )
+      .then((reply) => {
+        if (!this.finish(session, id)) return; // already answered (the session ended) or cancelled
+        session.lastActivity = performance.now();
+        this.deliver(session, { jsonrpc: "2.0", id, result: reply as unknown as Record<string, unknown> });
+      });
+    return true;
+  }
+
+  /** A message from REA, towards the client. */
+  private fromChild(session: Session, message: JSONRPCMessage): void {
+    const gateway = this.gateway;
+    if (gateway !== undefined && isJSONRPCResultResponse(message)) {
+      const pending = session.inFlight.get(message.id);
+      if (pending?.method === "tools/list") {
+        this.settle(session, message.id, { ...message, result: this.rewriteToolList(session, message.result) });
+        return;
+      }
+      if (pending?.method === "tools/call" && gateway.inlineLimit > 0 && pending.tool !== undefined) {
+        void this.replaceOversized(session, gateway, message, pending.tool);
+        return;
+      }
+    }
+    // An answer from REA ends its request, and the idle timer restarts from here.
+    if (
+      (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) &&
+      message.id !== undefined &&
+      this.finish(session, message.id)
+    ) {
+      session.lastActivity = performance.now();
+    }
+    this.deliver(session, message);
+  }
+
+  /** Deliver the answer to a request, if it has not been answered or cancelled already. */
+  private settle(session: Session, id: RequestId, message: JSONRPCMessage): void {
+    if (this.finish(session, id)) session.lastActivity = performance.now();
+    this.deliver(session, message);
+  }
+
+  /**
+   * Append the gateway's tools to a `tools/list` result, remove REA's `outputSchema`s while results can be replaced, and drop a
+   * REA tool that has one of the gateway's names. Anything unexpected returns the result as REA sent it.
+   */
+  private rewriteToolList(session: Session, result: Record<string, unknown>): Record<string, unknown> {
+    const gateway = this.gateway;
+    if (gateway === undefined || !Array.isArray(result.tools)) return result;
+    try {
+      const reported = result.tools as unknown[];
+      const kept = reported.filter((tool) => !(isRecord(tool) && typeof tool.name === "string" && gateway.toolNames.has(tool.name)));
+      if (kept.length !== reported.length) this.logger.warn("REA reports a tool with a name the gateway keeps", { sessionId: session.id });
+      const tools = gateway.inlineLimit > 0 ? kept.map((tool) => (isRecord(tool) ? withoutOutputSchema(tool) : tool)) : kept;
+      // The gateway's tools go on the last page.
+      if (result.nextCursor === undefined) tools.push(...gateway.toolDefinitions);
+      return { ...result, tools };
+    } catch {
+      this.logger.warn("could not rewrite the tool list", { sessionId: session.id });
+      return result;
+    }
+  }
+
+  /**
+   * Replace a `tools/call` result that is too large with a stub, storing the text. Any failure delivers the result as REA sent
+   * it. The request stays in flight until this finishes, so the session is not idle meanwhile, and a session that ends meanwhile
+   * has already answered the request (and the stored result is removed again).
+   */
+  private async replaceOversized(session: Session, gateway: SessionGateway, message: JSONRPCMessage & { id: RequestId; result: Record<string, unknown> }, tool: string): Promise<void> {
+    let out: JSONRPCMessage = message;
+    try {
+      const replacement = await gateway.replaceOversized(session.id, tool, message.result);
+      if (replacement !== undefined) out = { ...message, result: replacement };
+    } catch (error) {
+      this.logger.warn("could not store a large result; sending it as it is", {
+        sessionId: session.id,
+        tool,
+        reason: error instanceof Error ? error.name : "unknown error",
+      });
+    }
+    if (session.ended) await gateway.sessionEnded(session.id).catch(() => undefined);
+    this.settle(session, message.id, out);
+  }
+
   /** Note what a message from the client does to the session's activity and in-flight requests. */
   private track(session: Session, message: JSONRPCMessage): void {
     session.lastActivity = performance.now();
     if (isJSONRPCRequest(message)) {
       const token = message.params?._meta?.progressToken;
-      session.inFlight.set(message.id, token);
+      const name = message.params?.name;
+      const tool = message.method === "tools/call" && typeof name === "string" ? name : undefined;
+      session.inFlight.set(message.id, { token, method: message.method, tool });
       if (token !== undefined) session.progressTokens.set(token, message.id);
     } else if (isJSONRPCNotification(message) && message.method === "notifications/cancelled") {
       // The client has given up on that request and REA need not answer it, so it must
@@ -405,10 +536,10 @@ export class SessionManager {
 
   /** A request is over (answered or cancelled): forget it and its progress token. */
   private finish(session: Session, id: RequestId): boolean {
-    if (!session.inFlight.has(id)) return false;
-    const token = session.inFlight.get(id);
+    const pending = session.inFlight.get(id);
+    if (pending === undefined) return false;
     session.inFlight.delete(id);
-    if (token !== undefined) session.progressTokens.delete(token);
+    if (pending.token !== undefined) session.progressTokens.delete(pending.token);
     return true;
   }
 
@@ -416,7 +547,8 @@ export class SessionManager {
   private reapIdle(): void {
     const now = performance.now();
     for (const session of this.sessions.values()) {
-      if (session.inFlight.size === 0 && now - session.lastActivity >= this.options.idleTimeoutMs) {
+      const transferring = this.gateway?.busy(session.id) === true;
+      if (session.inFlight.size === 0 && !transferring && now - session.lastActivity >= this.options.idleTimeoutMs) {
         void this.end(session, "idle");
       }
     }
@@ -471,7 +603,12 @@ export class SessionManager {
     // Whatever ends a session (the client's DELETE, shutdown, a failed write to REA), a call still open gets an
     // error before its stream is closed. (After REA exits, childExited has already answered them, so none are left.)
     await this.failInFlight(session, "Session ended");
-    await Promise.allSettled([session.transport.close(), this.stopChild(session)]);
+    await Promise.allSettled([
+      session.transport.close(),
+      this.stopChild(session),
+      // Its stored results and download tickets go with it.
+      this.gateway?.sessionEnded(session.id),
+    ]);
   }
 
   /** The graceful stop of a session's REA: see ReaChild.terminate. */
@@ -487,5 +624,12 @@ export class SessionManager {
     });
   }
 }
+
+/** A tool definition without its `outputSchema`. */
+const withoutOutputSchema = (tool: Record<string, unknown>): Record<string, unknown> => {
+  const { outputSchema: _schema, ...rest } = tool;
+  void _schema;
+  return rest;
+};
 
 const describeExit = (exit: ChildExit): string => (exit.code !== null ? `code ${exit.code}` : `signal ${exit.signal ?? "unknown"}`);

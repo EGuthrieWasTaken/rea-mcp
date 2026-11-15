@@ -3,6 +3,8 @@ import type { AddressInfo } from "node:net";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createKeyVerifier } from "../../src/auth.js";
+import { createFeatures, type Features } from "../../src/features.js";
+import type { SessionGateway } from "../../src/gateway-tools/index.js";
 import { createFailureLimiter, type FailureLimiter } from "../../src/http/ratelimit.js";
 import { createGatewayServer, listen, shutdown } from "../../src/http/server.js";
 import { createLogger } from "../../src/logger.js";
@@ -33,10 +35,28 @@ export interface HarnessOptions {
   reapIntervalMs?: number;
   /** Variables the gateway's own environment holds, from which the child env is built. */
   gatewayEnv?: Record<string, string>;
+  /** Turn on file transfer and result paging, with these settings (the defaults are the gateway's own). */
+  files?: {
+    resultInlineLimit?: number;
+    publicBaseUrl?: string;
+    trustProxy?: boolean;
+    maxUploadBytes?: number;
+    inboxMaxBytes?: number;
+    ticketTtlSec?: number;
+    stallMs?: number;
+    sessionStoreLimitBytes?: number;
+    allowedHosts?: string[];
+  };
+  /** A hand-made gateway in place of the real one, for tests of the relay alone. */
+  gateway?: SessionGateway;
 }
 
 export interface Harness {
   readonly url: string;
+  /** `http://127.0.0.1:<port>`, where the transfer routes are too. */
+  readonly origin: string;
+  /** The file-transfer features, when the harness was started with `files`. */
+  readonly features: Features | undefined;
   readonly sessionsDir: string;
   readonly manager: SessionManager;
   readonly lines: string[];
@@ -56,10 +76,26 @@ export const startHarness = async (options: HarnessOptions = {}): Promise<Harnes
     args: [FAKE_REA, ...(options.flags ?? [])],
     env: childEnvironment({ PATH: process.env.PATH, ...options.gatewayEnv }),
   };
+  const features =
+    options.files === undefined
+      ? undefined
+      : await createFeatures({
+          logger,
+          workDir: tempDir("rea-mcp-work-"),
+          publicBaseUrl: options.files.publicBaseUrl,
+          trustProxy: options.files.trustProxy ?? false,
+          maxUploadBytes: options.files.maxUploadBytes ?? 268_435_456,
+          inboxMaxBytes: options.files.inboxMaxBytes ?? 4_294_967_296,
+          ticketTtlSec: options.files.ticketTtlSec ?? 900,
+          resultInlineLimit: options.files.resultInlineLimit ?? 40_000,
+          ...(options.files.stallMs === undefined ? {} : { stallMs: options.files.stallMs }),
+          ...(options.files.sessionStoreLimitBytes === undefined ? {} : { sessionStoreLimitBytes: options.files.sessionStoreLimitBytes }),
+        });
   const manager = new SessionManager({
     logger,
     launch,
     sessionsDir,
+    ...(options.gateway !== undefined ? { gateway: options.gateway } : features === undefined ? {} : { gateway: features.gateway }),
     ...(options.initializeTimeoutMs === undefined ? {} : { initializeTimeoutMs: options.initializeTimeoutMs }),
     ...(options.maxBodyBytes === undefined ? {} : { maxBodyBytes: options.maxBodyBytes }),
     ...(options.keepAliveMs === undefined ? {} : { keepAliveMs: options.keepAliveMs }),
@@ -70,15 +106,21 @@ export const startHarness = async (options: HarnessOptions = {}): Promise<Harnes
     ...(options.reapIntervalMs === undefined ? {} : { reapIntervalMs: options.reapIntervalMs }),
   });
   const limiter: FailureLimiter = createFailureLimiter();
+  if (features !== undefined) features.tickets.onEnd = (ticket) => manager.touch(ticket.sessionId);
   const server: Server = createGatewayServer({
     logger,
     verifier: createKeyVerifier([HARNESS_KEY]),
     limiter,
     mcp: manager.handler,
+    ...(features === undefined ? {} : { transfer: features.routes }),
+    ...(options.files?.allowedHosts === undefined ? {} : { allowedHosts: options.files.allowedHosts }),
   });
   await listen(server, 0);
+  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const harness: Harness = {
-    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/mcp`,
+    url: `${origin}/mcp`,
+    origin,
+    features,
     sessionsDir,
     manager,
     lines,

@@ -43,7 +43,7 @@ describe("a session through the gateway, with a real MCP client", () => {
     expect(transport.sessionId).toMatch(/^[0-9a-f-]{36}$/);
 
     const { tools } = await client.listTools();
-    expect(tools.map((tool) => tool.name)).toEqual(["echo", "slow", "crash", "env", "cwd", "pid", "grandchild", "log", "stats"]);
+    expect(tools.map((tool) => tool.name)).toEqual(["echo", "slow", "crash", "env", "cwd", "pid", "grandchild", "log", "stats", "big"]);
 
     expect(textOf(await client.callTool({ name: "echo", arguments: { text: "hello through the gateway" } }))).toBe(
       "hello through the gateway",

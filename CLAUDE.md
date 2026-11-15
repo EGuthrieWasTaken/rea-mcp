@@ -36,10 +36,12 @@ as one Docker image with a native unRAID template. Licensed GPL-3.0-only.
 ## Where the plan lives
 
 This repository is spec-driven with [OpenSpec](https://github.com/Fission-AI/OpenSpec).
-The active change is `openspec/changes/bootstrap-rea-mcp-gateway/`
-(`proposal.md`, `design.md`, `tasks.md`, and one `specs/<capability>/spec.md`
-per capability). Work through `tasks.md` in order, land one task per commit, and
-tick its checkbox in the same commit.
+The current requirements are the specs in `openspec/specs/<capability>/spec.md`.
+A change in flight lives in `openspec/changes/<name>/` (`proposal.md`, `design.md`,
+`tasks.md`, and one `specs/<capability>/spec.md` delta per capability it touches).
+Work through its `tasks.md` in order, land one task per commit, and tick its
+checkbox in the same commit. The first change, `bootstrap-rea-mcp-gateway`, is
+finished and archived under `openspec/changes/archive/`.
 
 Check specs and changes with:
 
