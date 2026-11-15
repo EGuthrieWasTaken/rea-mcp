@@ -53,11 +53,11 @@ written as UNVERIFIED.
 - [x] 8.3 Against the running container, check each refusal with `curl`: reuse `409`, wrong secret `404` (same as an unknown id), over-size `413`, hash mismatch `422`, a short `TRANSFER_TICKET_TTL_SEC` expiring `410`, a disallowed `Host` `403`, and a burst of wrong secrets `429`
 - [x] 8.4 Check idle reaping: with `SESSION_IDLE_TIMEOUT_SEC` set low, a rate-limited upload that outlasts it keeps its session, and the session is reaped afterwards
 - [x] 8.5 Run Claude Code against the container, as in the earlier end-to-end run (subscription login only, never API credits): an agent uploads a file with `curl`, opens it, makes a call whose result is replaced, and reads the rest with `read_result`; record what it did and where it was confused
-- [ ] 8.6 Re-run the earlier seeded-violation checks and the full CI gate locally, and add one for the new unauthenticated routes (a seeded log of a secret must fail 4.4's test)
+- [x] 8.6 Re-run the earlier seeded-violation checks and the full CI gate locally, and add one for the new unauthenticated routes (a seeded log of a secret must fail 4.4's test)
 
 ## 9. Reconcile and hand over
 
-- [ ] 9.1 Reconcile the specs with what was built, as bootstrap task 8.4 did: list every difference, put it to the maintainer, and fix the spec or the code; verify `npx @fission-ai/openspec validate --all --strict` passes
+- [x] 9.1 Reconcile the specs with what was built, as bootstrap task 8.4 did: list every difference, put it to the maintainer, and fix the spec or the code; verify `npx @fission-ai/openspec validate --all --strict` passes
 - [ ] 9.2 With the maintainer's approval, push the branch, open a pull request, and merge it when CI is green; the `latest` image then rebuilds from `main`
 - [ ] 9.3 **Maintainer step.** After pulling the new image on unRAID, set `PUBLIC_BASE_URL`, and upload a file through the tunnel from the machine the agent runs on (with the Access bypass in place if Access is used); report whether the request-body limit, the Access bypass and the agent sandbox's reach (design assumptions 5 to 7) held, and record the answer in `docs/DESIGN.md`
 - [ ] 9.4 Archive this change with `openspec archive`, once 9.3 is recorded

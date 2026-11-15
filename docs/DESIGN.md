@@ -1749,5 +1749,24 @@ The agent was told what to do in five steps and to report anything that confused
   stored result, and the start of the first page.
 - **What confused it:** the `read_result` answer puts a small JSON item (offsets and sizes) before the slice, so "the first
   page" is not the first bytes of the answer; it worked this out and quoted the slice. It also said it read only two pages
-  because the task said two. Neither is a defect, but the tool description now says what the two items are.
+  because the task said two. Neither is a defect; the tool description already says what the two items are.
 - The container's log held no secret, no `/upload/` path and no file name after the run.
+
+### 18.7 Reconciling the specs with what was built (task 9.1)
+
+The specs of this change were compared with the code on 2026-11-15 after the checks of 18.5 and 18.6. Every requirement
+had a test or a run above. The differences found, and what was done (the maintainer's instruction for this work was
+"use your recommendations", so each was settled that way):
+
+| Difference | What was done |
+|---|---|
+| A file name with an unpaired surrogate (not valid text) is refused, and the spec's list of refused names did not say so | The `file-transfer` requirement "Upload file names" now says valid Unicode text is required |
+| Finished and expired tickets were forgotten only when a new ticket was minted, so a stale ticket could still be found by `upload_status` | A lookup now forgets them first (code and a test changed; the spec was right) |
+| `read_result` at an `offset` equal to the size returns an empty slice with `next_offset` null; only an offset past the size is an error | None needed: that is what the spec says ("past the end") |
+| The stub's `chars` counts UTF-16 code units (a JavaScript string's length), which differs from a count of characters for text with characters outside the Basic Multilingual Plane | Documented in `src/results/store.ts`; the spec says "characters" for the stub's size and the 2000-character preview, and the preview never splits a surrogate pair |
+| A cancelled gateway-tool call was covered by the code but not by a test | A test was added (the answer never arrives on the stream) |
+| The smoke test did not cover the new routes | `scripts/smoke_test.sh` now lists the four tools, checks an unknown ticket is a bare 404, uploads once with `request_upload` and `curl`, checks reuse is `409`, and checks the log (18.5) |
+| `request_upload` and `request_download` return `url_source`, `result_id` and `next_steps` beyond what the specs list | None needed: the specs list required fields, not all fields |
+
+Not done, and left for the maintainer (task 9.3): an upload through the Cloudflare Tunnel, which decides the assumptions about
+the request-body limit, Cloudflare Access and the agent sandbox's reach (design, "Unverified assumptions" 5 to 7).

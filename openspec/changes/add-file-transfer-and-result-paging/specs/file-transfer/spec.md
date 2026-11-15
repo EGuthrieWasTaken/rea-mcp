@@ -27,7 +27,7 @@ absolute `path` the file will have in the inbox, `expires_at`, the applicable
 The gateway SHALL validate the name when the ticket is requested, so that the agent is
 refused before it uploads anything. A name SHALL be a single path component of at most
 200 bytes in UTF-8, SHALL NOT be `.` or `..` or start with `.`, and SHALL NOT contain
-`/`, `\`, NUL, a control character, or a character that changes the direction of text (such as the right-to-left override).
+`/`, `\`, NUL, a control character, or a character that changes the direction of text (such as the right-to-left override), and SHALL be valid Unicode text (no unpaired surrogate).
 
 #### Scenario: A name that would leave the inbox
 - **WHEN** `request_upload` is called with a name containing `/` or `\`, or equal to `..`, or starting with `.`, or containing a control character or a right-to-left override
