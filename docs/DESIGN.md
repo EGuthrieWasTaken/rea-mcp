@@ -1685,3 +1685,49 @@ code is copied or depended on). Differences, and why:
 | JSON body for read results | Metadata item, then the raw slice | Text that is itself JSON would be escaped, and about a tenth longer, for nothing |
 | One FastAPI process with a rate limit on its own routes | The existing failed-attempt limiter, shared with `/mcp` | One budget for everything that can be guessed |
 | Tools are the server's own | Tools are added to a relayed REA list, and REA's `outputSchema` is removed | REA's results must stay valid for clients that validate (18.1) |
+
+### 18.5 Verification on the built image (tasks 8.1 to 8.4) (**Ran**)
+
+Run on 2026-11-15 against an image built from this branch (`docker build -f docker/Dockerfile`), started as the unRAID
+template starts it: `--cap-drop=ALL`, `--security-opt=no-new-privileges:true`, `--memory=6g`, `--pids-limit=1024`,
+`/samples` mounted `:ro`, `/work` a bind mount owned by 99:100, `LOG_LEVEL=debug`, a throwaway key, loopback only. A small
+MCP client drove it over raw streamable HTTP and ran each `curl_command` **exactly as the tool returned it**, with only
+its placeholder filled in. The containers were removed afterwards. The entrypoint created `/work/inbox` (`drwxr-x---`) and
+`/work/results` (`drwx------`) on an empty `/work`.
+
+**8.1, uploading and opening.**
+
+| Check | Result |
+|---|---|
+| Tool list | 259 tools: REA's 255 and the four gateway tools; none has an `outputSchema` |
+| A 76 MiB upload (79,691,776 bytes of random data) | `request_upload`, then its `curl_command`: HTTP 200 in 0.4 s; the `size` and `sha256` curl printed equal the local file's; the file in `/work/inbox` has the same hash, mode `0640` (no execute bit); `upload_status` says `complete`; the same URL used again is `409` |
+| Gateway memory during that upload | The node process's RSS was 144 MiB before and 144 MiB at its peak, sampled every 0.15 s, with the upload rate-limited to 30 MB/s so it lasted 2.1 s: **no growth** for a 76 MiB body. (A first measurement picked up `tini` instead of node and is not counted.) |
+| A real 26 MiB ELF (`libjvm.so`, 27,056,488 bytes) | Uploaded with curl; `open_binary` on the returned path opened it (`elf`, `x86_64`) and REA's `sha256` is the one curl printed |
+| The log (at `debug`) | No upload secret, no `/upload/` path, no file name and no API key anywhere; the request log's paths are the labels `/healthz`, `/mcp` and `/upload`; the transfer messages are `upload ticket issued`, `upload started`, `upload complete` |
+
+**8.2, a large result.** A 371,264-byte program (`objdump`) was uploaded and opened; `binary_overview` (8,989 characters)
+came back whole with its `structuredContent`; `list_strings` came back as a **2,639-character stub** for a result of
+340,336 characters (`truncated`, `stored`, `result_id`, a 2000-character preview, no `structuredContent`, REA's
+`untrusted_content` marking kept). `/work/results/<session>/<id>.txt` held the 340,336 bytes with mode `-rw-------`.
+Paging with `read_result` took **9 calls** and reassembled exactly 340,336 bytes; `request_download` and its `curl_command`
+fetched the same bytes, and the SHA-256 of the download, the one the tool promised and the one of the paged text were equal;
+a second use of the download URL was `409`. After `DELETE /mcp` the session's results directory was gone and an
+unused download URL of that session answered `404`.
+
+**8.3, refusals** (a second container with `ALLOWED_HOSTS=rea.example`, `TRANSFER_TICKET_TTL_SEC=30`):
+
+| Request | Answer |
+|---|---|
+| Upload URL with a `Host` that is not allowed | `403`, and the ticket stayed `pending` and then worked with the allowed `Host` |
+| 5000 bytes against a 1000-byte ticket, with a `Content-Length` and chunked | `413` both times; the ticket is `failed` (`too_large`); nothing and no temporary file left in the inbox |
+| A body whose hash is not the promised one | `422`; nothing saved |
+| A wrong secret for a real id, and an unknown id | the same bare `404`: same status line, same headers (apart from `Date`), empty body |
+| The API key as a ticket secret; a ticket secret as `x-api-key` | `404`; `401` |
+| Ten failed attempts from one source (four of them from the checks above) | the eleventh and later `429` with `Retry-After: 60`, **including a request with the correct secret** |
+| An upload URL used after its 30 s lifetime | `410` with `"expired"`; `upload_status` says `expired` |
+
+**8.4, idle reaping** (same container, `SESSION_IDLE_TIMEOUT_SEC=10`): a session that sent nothing for 25 s was gone; a
+session that asked for a 40 MiB upload and then sent nothing at all while `curl --limit-rate 2M` took **20 s** (twice the
+idle timeout) was still there when the upload ended, and was reaped about 10 s after that. (A first run polled the session
+every few seconds, which is itself activity, and proved nothing; it was redone without polling.) With the transfer check
+disabled in the source, the unit test for this fails (a mutation check).

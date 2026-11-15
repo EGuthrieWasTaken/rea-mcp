@@ -44,14 +44,14 @@ written as UNVERIFIED.
 
 - [x] 7.1 README: a section on giving the agent a file (`request_upload`, then `curl`, then `open_binary` with the returned path) and on reading large results; the five settings; a sample instruction for the agent; why `PUBLIC_BASE_URL` matters behind a tunnel
 - [x] 7.2 `docs/SECURITY.md`: the two unauthenticated routes, what a ticket URL can and cannot do, the limits, the shared inbox; `docs/CLOUDFLARE.md`: `PUBLIC_BASE_URL`, a bypass for `/upload/*` and `/download/*` if Access is used (UNVERIFIED how), the request-body limit (UNVERIFIED), and a test the maintainer can run through the tunnel
-- [ ] 7.3 `docs/DESIGN.md`: the evidence of 1.x and 8.x, the overnight connector findings (E6), and the choices that differ from `claude-files` and why
+- [x] 7.3 `docs/DESIGN.md`: the evidence of 1.x and 8.x, the overnight connector findings (E6), and the choices that differ from `claude-files` and why
 
 ## 8. Verification
 
-- [ ] 8.1 Build the image and run it as the template does (`--cap-drop=ALL`, `no-new-privileges`, `/samples` read-only); upload a file of at least 76 MiB with the returned `curl_command` over loopback; check the response, the SHA-256 and the file in `/work/inbox` agree, call `open_binary` and one analysis tool on it, and check the log holds no secret, path or file name
-- [ ] 8.2 With the same container, call a tool that returns a large result: check the stub, page through it with `read_result` until `next_offset` is `null` and compare the concatenation's SHA-256 with a `request_download` of the same result; check `/work/results/<session-id>` is gone after the session ends
-- [ ] 8.3 Against the running container, check each refusal with `curl`: reuse `409`, wrong secret `404` (same as an unknown id), over-size `413`, hash mismatch `422`, a short `TRANSFER_TICKET_TTL_SEC` expiring `410`, a disallowed `Host` `403`, and a burst of wrong secrets `429`
-- [ ] 8.4 Check idle reaping: with `SESSION_IDLE_TIMEOUT_SEC` set low, a rate-limited upload that outlasts it keeps its session, and the session is reaped afterwards
+- [x] 8.1 Build the image and run it as the template does (`--cap-drop=ALL`, `no-new-privileges`, `/samples` read-only); upload a file of at least 76 MiB with the returned `curl_command` over loopback; check the response, the SHA-256 and the file in `/work/inbox` agree, call `open_binary` and one analysis tool on it, and check the log holds no secret, path or file name
+- [x] 8.2 With the same container, call a tool that returns a large result: check the stub, page through it with `read_result` until `next_offset` is `null` and compare the concatenation's SHA-256 with a `request_download` of the same result; check `/work/results/<session-id>` is gone after the session ends
+- [x] 8.3 Against the running container, check each refusal with `curl`: reuse `409`, wrong secret `404` (same as an unknown id), over-size `413`, hash mismatch `422`, a short `TRANSFER_TICKET_TTL_SEC` expiring `410`, a disallowed `Host` `403`, and a burst of wrong secrets `429`
+- [x] 8.4 Check idle reaping: with `SESSION_IDLE_TIMEOUT_SEC` set low, a rate-limited upload that outlasts it keeps its session, and the session is reaped afterwards
 - [ ] 8.5 Run Claude Code against the container, as in the earlier end-to-end run (subscription login only, never API credits): an agent uploads a file with `curl`, opens it, makes a call whose result is replaced, and reads the rest with `read_result`; record what it did and where it was confused
 - [ ] 8.6 Re-run the earlier seeded-violation checks and the full CI gate locally, and add one for the new unauthenticated routes (a seeded log of a secret must fail 4.4's test)
 
