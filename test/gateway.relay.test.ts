@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { SessionGateway } from "../src/gateway-tools/index.js";
 import { resultSize } from "../src/results/replace.js";
-import { closeHarnesses, connectClient, startHarness, textOf, type Harness } from "./helpers/gateway.js";
+import { closeHarnesses, connectClient, HARNESS_KEY, startHarness, textOf, type Harness } from "./helpers/gateway.js";
 
 afterEach(closeHarnesses);
 
@@ -140,6 +140,66 @@ describe("the gateway's own tool calls", () => {
     await sleep(100);
     // Nothing further arrived, and the gateway did not log a second answer or a failure.
     expect(harness.entries().filter((entry) => entry.level === "error")).toEqual([]);
+  });
+});
+
+describe("a cancelled gateway tool call", () => {
+  it("is not answered afterwards", async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const gateway: SessionGateway = {
+      toolNames: new Set(["read_result"]),
+      toolDefinitions: [{ name: "read_result", title: "t", description: "d", inputSchema: { type: "object" } }],
+      inlineLimit: 0,
+      callTool: async () => {
+        await gate;
+        return { content: [{ type: "text", text: "late answer" }] };
+      },
+      replaceOversized: () => Promise.resolve(undefined),
+      busy: () => false,
+      sessionEnded: () => Promise.resolve(),
+    };
+    const harness = await startHarness({ gateway });
+    const { transport } = await connectClient(harness);
+    const headers = {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      "x-api-key": HARNESS_KEY,
+      "mcp-session-id": transport.sessionId ?? "",
+    };
+    const abort = new AbortController();
+    const response = await fetch(harness.url, {
+      method: "POST",
+      headers,
+      signal: abort.signal,
+      body: JSON.stringify({ jsonrpc: "2.0", id: 4242, method: "tools/call", params: { name: "read_result", arguments: {} } }),
+    });
+    expect(response.status).toBe(200);
+    const iterator = (response.body as unknown as AsyncIterable<Uint8Array>)[Symbol.asyncIterator]();
+    // The client changes its mind.
+    const cancelled = await fetch(harness.url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: 4242 } }),
+    });
+    expect(cancelled.status).toBe(202);
+    release?.();
+
+    // Whatever else arrives on that stream (keep-alive comments), no answer to the call does.
+    let seen = "";
+    const decoder = new TextDecoder();
+    const until = Date.now() + 400;
+    while (Date.now() < until) {
+      const next = await Promise.race([iterator.next(), sleep(100).then(() => undefined)]);
+      if (next === undefined) continue;
+      if (next.done === true) break;
+      seen += decoder.decode(next.value);
+    }
+    abort.abort();
+    expect(seen).not.toContain("late answer");
+    expect(seen).not.toContain('"id":4242');
   });
 });
 

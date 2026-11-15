@@ -199,6 +199,17 @@ describe("tickets: remembering and forgetting", () => {
     expect(store.get(ticket.id)).toBeUndefined();
   });
 
+  it("forgets a ticket on lookup too, not only when another is minted", () => {
+    const { store, advance } = make();
+    const { ticket, secret } = upload(store);
+    store.claim(ticket);
+    store.complete(ticket, 1, "00".repeat(32));
+    advance(TTL);
+    expect(store.find(ticket.id, secret)).toBeUndefined();
+    expect(store.get(ticket.id)).toBeUndefined();
+    expect(store.size).toBe(0);
+  });
+
   it("forgets an unclaimed ticket one lifetime after it expired, not before", () => {
     const { store, advance } = make();
     const { ticket } = upload(store);

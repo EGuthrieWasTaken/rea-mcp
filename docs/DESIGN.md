@@ -1731,3 +1731,23 @@ session that asked for a 40 MiB upload and then sent nothing at all while `curl 
 idle timeout) was still there when the upload ended, and was reaped about 10 s after that. (A first run polled the session
 every few seconds, which is itself activity, and proved nothing; it was redone without polling.) With the transfer check
 disabled in the source, the unit test for this fails (a mutation check).
+
+### 18.6 Claude Code against the built image (task 8.5) (**Ran**)
+
+Run on 2026-11-15 with Claude Code 2.1.319 in `claude -p` mode (model `haiku`, **subscription login only**: no
+`ANTHROPIC_API_KEY` or auth token was set, so nothing was charged to an API balance; the CLI itself printed a notional
+`$0.22`), against the same hardened container as 18.5. The MCP server was passed with `--strict-mcp-config` and the key
+through `${...}` expansion, the base tools were limited to `Bash`, and the only allowed shell command was `Bash(curl:*)`.
+The agent was told what to do in five steps and to report anything that confused it.
+
+- It saw **259 tools** at the start (none deferred) and made 8 tool calls in 9 turns with no error: `request_upload`;
+  `Bash` running the `curl_command` as returned, with `./sample-objdump` for the placeholder; `Bash` running `sha256sum`
+  on its own, because the tool result's `next_steps` suggested it; `open_binary` on `/work/inbox/sample-objdump`;
+  `list_strings`, which came back as a stub (`340,328` bytes); `read_result` at offset 0 and then at the `next_offset` of
+  40000; and `close_binary`.
+- It reported the upload's size and SHA-256 matching its own, that the file opened as an x86_64 ELF, the total size of the
+  stored result, and the start of the first page.
+- **What confused it:** the `read_result` answer puts a small JSON item (offsets and sizes) before the slice, so "the first
+  page" is not the first bytes of the answer; it worked this out and quoted the slice. It also said it read only two pages
+  because the task said two. Neither is a defect, but the tool description now says what the two items are.
+- The container's log held no secret, no `/upload/` path and no file name after the run.

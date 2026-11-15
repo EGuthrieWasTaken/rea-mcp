@@ -138,6 +138,7 @@ export class TicketStore {
    * answer by the same steps; the caller must not be able to tell them apart.
    */
   find(id: string, secret: string): Ticket | undefined {
+    this.sweep();
     const ticket = this.tickets.get(id);
     const matches = timingSafeEqual(digest(secret), ticket?.secretDigest ?? NO_TICKET);
     return matches && ticket !== undefined ? ticket : undefined;
@@ -145,6 +146,7 @@ export class TicketStore {
 
   /** A ticket by its public id, for `upload_status`. No secret is involved. */
   get(id: string): Ticket | undefined {
+    this.sweep();
     return this.tickets.get(id);
   }
 

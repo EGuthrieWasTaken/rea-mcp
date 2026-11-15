@@ -52,7 +52,7 @@ written as UNVERIFIED.
 - [x] 8.2 With the same container, call a tool that returns a large result: check the stub, page through it with `read_result` until `next_offset` is `null` and compare the concatenation's SHA-256 with a `request_download` of the same result; check `/work/results/<session-id>` is gone after the session ends
 - [x] 8.3 Against the running container, check each refusal with `curl`: reuse `409`, wrong secret `404` (same as an unknown id), over-size `413`, hash mismatch `422`, a short `TRANSFER_TICKET_TTL_SEC` expiring `410`, a disallowed `Host` `403`, and a burst of wrong secrets `429`
 - [x] 8.4 Check idle reaping: with `SESSION_IDLE_TIMEOUT_SEC` set low, a rate-limited upload that outlasts it keeps its session, and the session is reaped afterwards
-- [ ] 8.5 Run Claude Code against the container, as in the earlier end-to-end run (subscription login only, never API credits): an agent uploads a file with `curl`, opens it, makes a call whose result is replaced, and reads the rest with `read_result`; record what it did and where it was confused
+- [x] 8.5 Run Claude Code against the container, as in the earlier end-to-end run (subscription login only, never API credits): an agent uploads a file with `curl`, opens it, makes a call whose result is replaced, and reads the rest with `read_result`; record what it did and where it was confused
 - [ ] 8.6 Re-run the earlier seeded-violation checks and the full CI gate locally, and add one for the new unauthenticated routes (a seeded log of a secret must fail 4.4's test)
 
 ## 9. Reconcile and hand over
