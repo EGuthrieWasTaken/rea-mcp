@@ -83,7 +83,7 @@ against), so install it as a user template:
 
 The template runs the container with `--security-opt=no-new-privileges:true --cap-drop=ALL`, bridge
 networking and no web UI. unRAID adds `--pids-limit 2048` itself (its Docker PID Limit setting, default 2048).
-The image's `latest` tag moves; pin a version tag once releases exist.
+The image's `latest` tag moves with every merge to `main`; for a stable install pin a version tag, for example `ghcr.io/eguthriewastaken/rea-mcp:0.1.0` (the first release is `v0.1.0`; releases are listed on the repository's Releases page).
 
 ### Two unRAID host settings that matter
 

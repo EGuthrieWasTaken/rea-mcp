@@ -63,7 +63,7 @@ Ask the maintainer before pushing or publishing to GHCR.
 - [x] 6.2 Add the gitleaks job scanning full history (`fetch-depth: 0`) and the template XML check job; verify both pass and that each fails on a seeded violation in a scratch branch
 - [x] 6.3 Add the image build job and run the smoke-test script from 4.7 against the built image; verify on a branch run
 - [x] 6.4 Add GHCR publishing on `main` and version tags using the workflow token with least-privilege `permissions`, lowercase image name, and no stored secrets; **get maintainer approval before this job is enabled or first runs**
-- [ ] 6.5 (Optional) Add `.github/workflows/release.yml` for tagged releases
+- [x] 6.5 (Optional) Add `.github/workflows/release.yml` for tagged releases
 
 ## 7. Documentation
 

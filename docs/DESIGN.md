@@ -1405,7 +1405,7 @@ seeded-violation run of 2026-11-15 (below); 6.4 stays unticked. What was checked
 | `image` job in `ci.yml` | The same Docker commands ran on this host: the build (section 11.1), `scripts/check_hash_pins.sh` (an altered Ghidra or JDK hash fails the build on the checksum and leaves no image) and `scripts/smoke_test.sh` (section 11.7) | Done: passed on a runner (below) |
 | `gate` | Parsed with the `yaml` package: every job other than `gate` is in its `needs` | Seeing it fail when a job fails |
 | `.github/workflows/publish.yml` | Parses; triggers on a push to `main`, a `vX.Y.Z` tag and manually, with a guard so a fork does not publish; empty top-level `permissions`, job-level `contents: read` and `packages: write`; no third-party action. `scripts/image_tags.sh` gives `latest` and `sha-<12>` for `main`, `X.Y.Z` and `sha-<12>` for a `vX.Y.Z` tag, and refuses every other ref and malformed input. It was written disabled and **enabled on 2026-11-15 with the maintainer's approval** | Done: its first run succeeded (below), so task 6.4 is ticked |
-| `.github/workflows/release.yml` (task 6.5, optional; added 2026-11-15) | Parses; triggers only on a `vX.Y.Z` tag; empty top-level `permissions`, job-level `contents: write`; no checkout and no third-party action; a guard against forks. Its script, run locally with `gh` stubbed, builds `gh release create vX.Y.Z --verify-tag --generate-notes` with a line naming `ghcr.io/eguthriewastaken/rea-mcp:X.Y.Z`, and refuses `v1.2`, `v1.2.3-rc1` and a branch name; the flags were checked against `gh release create --help` | Its first run is on the first `vX.Y.Z` tag. Task 6.5 is ticked after that run succeeds |
+| `.github/workflows/release.yml` (task 6.5, optional; added 2026-11-15) | Parses; triggers only on a `vX.Y.Z` tag; empty top-level `permissions`, job-level `contents: write`; no checkout and no third-party action; a guard against forks. Its script, run locally with `gh` stubbed, builds `gh release create vX.Y.Z --verify-tag --generate-notes` with a line naming `ghcr.io/eguthriewastaken/rea-mcp:X.Y.Z`, and refuses `v1.2`, `v1.2.3-rc1` and a branch name; the flags were checked against `gh release create --help` | Done: it ran on `v0.1.0` (below), so task 6.5 is ticked |
 
 Design choices: the new jobs use the runner's own `docker` and `python3` and so add no third-party action
 to pin and no binary to hash-verify. The template job does not call `xmllint` (design D11 mentions it): the
@@ -1477,6 +1477,26 @@ Checked afterwards (**Ran**):
   `org.opencontainers.image.source` (this repository) and `org.opencontainers.image.licenses` (`GPL-3.0-only`).
 - The unRAID template's `Repository`, `ghcr.io/eguthriewastaken/rea-mcp:latest`, therefore resolves.
 
+### The first release, `v0.1.0` (task 6.5, 2026-11-15)
+
+The maintainer asked for a `v0.1.0` tag as a shakedown of the release pipeline before any 1.0.0, since `release.yml` and
+the tag path of `publish.yml` had never run. An annotated tag `v0.1.0` was pushed on `main` at `e48a9a6`, the commit
+that records the first publish, after that commit's own CI and publish runs had passed. Both workflows then succeeded
+(**Ran**):
+
+- **`release.yml`** (run 43685657862): created the GitHub Release `v0.1.0`, not a draft and not a pre-release, on `main`,
+  with generated notes (the seven pull requests merged so far, a full-changelog link) and the line "Container image:
+  `ghcr.io/eguthriewastaken/rea-mcp:0.1.0`". It needed only the workflow token.
+- **`publish.yml` on the tag** (run 43685657834): every step passed and the image was pushed as `0.1.0` and `sha-e48a9a6620cb`.
+  A tag publishes no `latest`, as designed.
+- **The image.** `:0.1.0` was pulled with an empty Docker configuration (no credentials) and `scripts/smoke_test.sh` passed
+  all twelve checks; the image is 1,915,755,280 bytes, `linux/amd64`, user `99:100`.
+- **A finding.** `:0.1.0` (digest `sha256:7db8c5e9...`, the same as `sha-e48a9a6620cb`) and `:latest` (`sha256:f369776c...`,
+  built by the run for the merge to `main`) are two builds of the same commit, so they are not byte-identical: the Dockerfile
+  pins every download and the base image, but not the Debian packages apt installs. The version tag is therefore not
+  "the `latest` image, named". Whether to promote the `main` build to the version tag instead of rebuilding is open
+  (section 13).
+
 ## 13. What is still UNVERIFIED (current)
 
 As of 2026-11-14. "Closed" items are in the list of section 4.2, with their evidence; this table is only what is open.
@@ -1485,7 +1505,7 @@ An item is **UNVERIFIED** until a primary source or a run shows it.
 | Item | Why open | What would close it |
 |---|---|---|
 | Dependabot's `docker` entry proposing a new digest when the tag moves, and skipping a new Node major | It ran and found `node 24-bookworm-slim` current (section 12); nothing has changed since | The tag moving, or a new Node major appearing |
-| `release.yml` (task 6.5, optional) creating a GitHub Release on a `vX.Y.Z` tag | Written and checked locally with `gh` stubbed; never run: no version tag exists yet | The first `vX.Y.Z` tag, which also exercises the tag path of `publish.yml` |
+| `latest` and a version tag (`0.1.0`) are separate builds of the same commit, not one image under two names | Each workflow run rebuilds; the Dockerfile pins Ghidra, the JDK, the base image and `rea-agents`, but the Debian packages installed with apt are not pinned, so two builds can differ (section 12) | A maintainer decision: promote the image built for `main` to the version tag instead of rebuilding, or accept it |
 | The claude.ai connector against this server, and interactive Claude Code (whether they send `DELETE /mcp`, and whether each conversation gets its own session; the rest of item 18) | Claude Code in `-p` mode was run end to end (section 14): separate sessions, no `DELETE`, no `close_binary` unless told. Anthropic's page says a connector accepts fixed request headers (**Docs**), which is not the same as trying it | The maintainer's steps in section 14 |
 | A Cloudflare Tunnel in front of it: the idle and absolute limits for a stream that has started, and what happens to a call whose connection a proxy cut | Cloudflare documents a 125 s default Proxy Read Timeout for a first response (**Docs**); the rest is not documented on the pages read | The maintainer's tunnel steps in section 14, with a call longer than 125 s |
 | APK decompilation | No APK sample and no JADX in the image by design | Not planned |
