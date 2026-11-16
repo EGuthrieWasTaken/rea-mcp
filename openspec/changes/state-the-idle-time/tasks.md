@@ -14,6 +14,6 @@ Commit after each task, ticking its box in the same commit. Ask the maintainer b
 
 ## 3. Verify and close
 
-- [ ] 3.1 Lint, typecheck, the full suite, `openspec validate --all --strict`, and a run on a built image with a short idle timeout showing the stated time and the `410` text
+- [x] 3.1 Lint, typecheck, the full suite, `openspec validate --all --strict`, and a run on a built image with a short idle timeout showing the stated time and the `410` text
 - [ ] 3.2 With the maintainer's approval, push, open a pull request, merge when green, update the container
 - [ ] 3.3 Archive this change
