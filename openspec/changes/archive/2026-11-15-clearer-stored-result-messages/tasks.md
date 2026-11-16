@@ -15,5 +15,5 @@ Commit after each task, ticking its box in the same commit. Ask the maintainer b
 ## 3. Verify and close
 
 - [x] 3.1 Lint, typecheck, the full test suite, `openspec validate --all --strict`, the template check, and a run of the stub, paging and download flow on a built image showing the new `410` and note
-- [ ] 3.2 With the maintainer's approval, push, open a pull request, merge when green, and pull the image on the unRAID container
-- [ ] 3.3 Archive this change
+- [x] 3.2 With the maintainer's approval, push, open a pull request, merge when green, and pull the image on the unRAID container
+- [x] 3.3 Archive this change
