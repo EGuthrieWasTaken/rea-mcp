@@ -84,6 +84,18 @@ describe("request_upload", () => {
     expect(object(await call(client, "request_upload", { name: "c" })).max_bytes).toBe(1000);
   });
 
+  it("says when it lowered max_bytes, and says nothing when it did not", async () => {
+    const { client } = await start({ maxUploadBytes: 1000 });
+    const lowered = object(await call(client, "request_upload", { name: "a", max_bytes: 5_000_000 }));
+    expect(lowered).toMatchObject({ max_bytes: 1000, max_bytes_clamped: true });
+    expect(String(lowered.next_steps)).toContain("lowered to 1000 bytes");
+    const exact = object(await call(client, "request_upload", { name: "b", max_bytes: 1000 }));
+    expect(exact).toMatchObject({ max_bytes: 1000, max_bytes_clamped: false });
+    expect(String(exact.next_steps)).not.toContain("lowered");
+    const unset = object(await call(client, "request_upload", { name: "c" }));
+    expect(unset.max_bytes_clamped).toBe(false);
+  });
+
   it("enforces the expected hash it was given, case-insensitively", async () => {
     const { harness, client } = await start();
     const body = Buffer.from("known");
@@ -312,6 +324,63 @@ describe("read_result", () => {
   });
 });
 
+describe("the words the tools use", () => {
+  const limit = 5000;
+
+  it("tell the agent, in the stub, how long a stored result lives and what the counts are", async () => {
+    const { client } = await start({ resultInlineLimit: limit });
+    const stub = object(await call(client, "big", { chars: 20_000 }));
+    const note = String(stub.note);
+    expect(note).toContain("deleted when this session ends");
+    expect(note).toContain("a few minutes without any request");
+    expect(note).toContain("UTF-8 bytes");
+    expect(note).toContain("chars counts characters");
+  });
+
+  it("explain a missing stored result the same way whether it never existed, belongs to another session, or is gone", async () => {
+    const { harness, client } = await start({ resultInlineLimit: limit });
+    const other = await connectClient(harness);
+    const theirs = object(await call(other.client, "big", { chars: 20_000 }));
+    const answers = new Set<string>();
+    for (const tool of ["read_result", "request_download"]) {
+      for (const id of [theirs.result_id, "r_AAAAAAAAAAAAAAAA"]) {
+        const reply = await call(client, tool, { result_id: id });
+        expect(reply.isError).toBe(true);
+        answers.add(textOf(reply));
+      }
+    }
+    expect(answers.size).toBe(1);
+    const [text] = [...answers];
+    expect(text).toContain("deleted when their session ends");
+    expect(text).toContain("run the call that produced it again");
+  });
+
+  it("echo the id that upload_status was given, shortened, and say records are kept for a while", async () => {
+    const { client } = await start();
+    const reply = await call(client, "upload_status", { upload_id: "u_nothing" });
+    expect(reply.isError).toBe(true);
+    expect(textOf(reply)).toContain('"u_nothing"');
+    expect(textOf(reply)).toContain("limited time");
+    const long = await call(client, "upload_status", { upload_id: "u_" + "x".repeat(500) });
+    expect(textOf(long).length).toBeLessThan(300);
+  });
+
+  it("say in each tool's title and description that it is for the REA server", async () => {
+    const { client } = await start();
+    const { tools } = await client.listTools();
+    for (const name of ["request_upload", "upload_status", "request_download", "read_result"]) {
+      const tool = tools.find((candidate) => candidate.name === name);
+      expect(tool?.title, name).toContain("REA");
+      expect(tool?.description, name).toContain("REA analysis server");
+    }
+    const read = tools.find((tool) => tool.name === "read_result");
+    expect(read?.description).toContain("raw bytes");
+    expect(read?.description).toContain("smaller `length`");
+    const download = tools.find((tool) => tool.name === "request_download");
+    expect(download?.description).toContain("if your session ends");
+  });
+});
+
 describe("request_download", () => {
   const limit = 5000;
 
@@ -348,18 +417,23 @@ describe("request_download", () => {
     expect(features(harness).tickets.size).toBe(0);
   });
 
-  it("stops working when the session ends: the URL answers 404 and the file is gone", async () => {
-    const { harness, client, transport } = await start({ resultInlineLimit: limit });
+  it("stops working when the session ends, and says why: 410 with a message, not a bare 404", async () => {
+    const { client, transport } = await start({ resultInlineLimit: limit });
     const stub = object(await call(client, "big", { chars: 20_000 }));
     const out = object(await call(client, "request_download", { result_id: stub.result_id }));
     await transport.terminateSession();
-    for (let i = 0; i < 100 && features(harness).tickets.find(String(out.download_id), "x") !== undefined; i += 1) await sleep(20);
-    let status = 0;
-    for (let i = 0; i < 100 && status !== 404; i += 1) {
-      status = (await fetch(String(out.download_url))).status;
-      if (status !== 404) await sleep(20);
+    let response = await fetch(String(out.download_url));
+    for (let i = 0; i < 100 && response.status !== 410; i += 1) {
+      await sleep(20);
+      response = await fetch(String(out.download_url));
     }
-    expect(status).toBe(404);
+    expect(response.status).toBe(410);
+    const body = (await response.json()) as { code: string; message: string };
+    expect(body.code).toBe("gone");
+    expect(body.message).toContain("session");
+    // The same path with a wrong secret is still just an unknown URL.
+    const wrong = String(out.download_url).replace(/\/[^/]+$/, `/${"x".repeat(43)}`);
+    expect((await fetch(wrong)).status).toBe(404);
   });
 });
 

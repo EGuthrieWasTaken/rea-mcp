@@ -1793,3 +1793,29 @@ What this settles: the request-body limit through this tunnel is **100 MiB** (de
 published figure for the Free and Pro plans, though which plan this is was not checked), so `MAX_UPLOAD_BYTES` was set to
 `104857600` on this container. Not settled: how to write a Cloudflare Access bypass (none was needed), and whether the
 claude.ai code-execution sandbox can reach this host name.
+
+### 18.9 The desktop-agent test and the clearer messages (change `clearer-stored-result-messages`) (**Ran**)
+
+On 2026-11-15/16 a Claude desktop agent ran a written test of the four tools through the connector and the tunnel
+(Part A: a server-side sample, a stub, paging, a download; Part B: an upload from its own machine and an analysis of it;
+Part C: five refusals). Every step worked as designed, with one thing that looked like a failure: its first download URL
+answered `404` and its first stored result was "no such stored result", about 24 minutes after they were made.
+
+**Cause, from the gateway's own log:** that session last made a request at 00:19:40 and was ended as `idle` at 00:24:57
+(`SESSION_IDLE_TIMEOUT_SEC` is 300); ending a session deletes its stored results and its unused download URLs. The agent's
+download attempt came at 00:43:17. The agent had been waiting on shell-command approvals. Nothing malfunctioned, but the
+answers (a bare `404`, "no such stored result") were the same as for an id that never existed, and nothing said how long a
+result lives. The agent regenerated the result in a new session and went on.
+
+The agent also reported: `max_bytes` lowered with no word of it; `chars` and `bytes` differing by one with no explanation; four
+other connectors exposing tools with the same names; `409` messages that did not name the tool to call; slices of a stored
+result not aligned to records; the default page of 40,000 bytes being large. The change `clearer-stored-result-messages`
+addresses these (it does not keep results beyond their session).
+
+Run on a built image, started as in 18.5 with `SESSION_IDLE_TIMEOUT_SEC=10` and a sample in `/samples`: the stub's note gives the
+lifetime and the units (`chars` 340321, `bytes` 340321 for this ASCII text); after 16 s without a request the session was ended,
+and a `GET` of its download URL answered **`410`** with `{"code":"gone","message":"The session that made this result has
+ended, and its stored results were deleted with it ... Run the analysis again and ask for a new download with request_download."}`,
+while the same path with a wrong secret was still the bare `404`; `read_result` from a new session gave one message that says a
+result is deleted when its session ends and to run the call again, and `upload_status` named the id it was given. (The check of
+`max_bytes` lowering was not meaningful on that container, whose limit is the default 256 MiB, and is covered by the tests.)

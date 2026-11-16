@@ -94,11 +94,28 @@ describe("download", () => {
     expect(codeOf(reply.body)).toBe("expired");
   });
 
-  it("answers 404 for a ticket whose session has ended", async () => {
+  it("tells whoever holds the right secret that the session ended (410), and answers a wrong secret with the bare 404", async () => {
     const t = await start();
-    const { path } = t.stored(Buffer.from("gone with the session"));
+    const { ticket, path } = t.stored(Buffer.from("gone with the session"));
     t.store.revokeDownloads("s1");
-    expect((await get(t.port, path)).status).toBe(404);
+    const reply = await get(t.port, path);
+    expect(reply.status).toBe(410);
+    expect(codeOf(reply.body)).toBe("gone");
+    expect(reply.body.toString()).toContain("session");
+    expect(reply.body.toString()).toContain("request_download");
+    const wrong = await get(t.port, `/download/${ticket.id}/${"x".repeat(43)}`);
+    expect(wrong.status).toBe(404);
+    expect(wrong.body.length).toBe(0);
+  });
+
+  it("names the tool to ask again in the 409 and 410 messages", async () => {
+    const t = await start();
+    const { path } = t.stored(Buffer.from("once"));
+    await get(t.port, path);
+    expect((await get(t.port, path)).body.toString()).toContain("request_download");
+    const late = t.stored(Buffer.from("late"), "r_two");
+    t.advance(900_000);
+    expect((await get(t.port, late.path)).body.toString()).toContain("request_download");
   });
 
   it("answers 410 when the stored file is gone", async () => {
