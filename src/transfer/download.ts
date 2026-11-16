@@ -7,7 +7,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { open } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import type { Logger } from "../logger.js";
-import type { DownloadTicket, TicketStore } from "./tickets.js";
+import { SESSION_ENDED, type DownloadTicket, type TicketStore } from "./tickets.js";
 
 export interface DownloadDeps {
   tickets: TicketStore;
@@ -34,12 +34,20 @@ export function createDownloadHandler(deps: DownloadDeps): (ticket: DownloadTick
   const { tickets, logger } = deps;
 
   return async (ticket, _req, res) => {
+    // Only someone with the right secret gets this far, so saying why the URL stopped working reveals nothing to a guesser.
+    if (ticket.state === "failed" && ticket.error?.code === SESSION_ENDED) {
+      return respond(res, 410, {
+        code: "gone",
+        message:
+          "The session that made this result has ended, and its stored results were deleted with it (a session ends after a few minutes without a request). Run the analysis again and ask for a new download with request_download.",
+      });
+    }
     const claim = tickets.claim(ticket);
     if (claim === "already-claimed") {
-      return respond(res, 409, { code: "conflict", message: "This download URL has already been used. Ask for a new one." });
+      return respond(res, 409, { code: "conflict", message: "This download URL has already been used. Ask for a new one with request_download." });
     }
     if (claim === "expired") {
-      return respond(res, 410, { code: "expired", message: "This download URL has expired. Ask for a new one." });
+      return respond(res, 410, { code: "expired", message: "This download URL has expired. Ask for a new one with request_download." });
     }
 
     const fail = (status: number, code: string, message: string): void => {
@@ -61,7 +69,7 @@ export function createDownloadHandler(deps: DownloadDeps): (ticket: DownloadTick
       const stats = await handle.stat();
       if (!stats.isFile() || stats.size !== ticket.totalBytes) {
         await handle.close();
-        return fail(409, "file_changed", "The stored result changed after the download URL was issued. Ask for a new one.");
+        return fail(409, "file_changed", "The stored result changed after the download URL was issued. Ask for a new one with request_download.");
       }
       res.writeHead(200, {
         "Content-Type": "application/octet-stream",

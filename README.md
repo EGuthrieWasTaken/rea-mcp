@@ -257,7 +257,10 @@ stores the whole text under `/work/results` and sends a short stub instead:
 - Asking REA for less (`detail: "summary"`, a smaller `max_output_bytes`, a narrower range) also helps, and costs no
   extra calls.
 - A session's stored results are deleted when the session ends (and `/work/results` is emptied when the container
-  starts); a session can store at most 256 MiB.
+  starts); a session can store at most 256 MiB. A session ends after `SESSION_IDLE_TIMEOUT_SEC` (5 minutes by default)
+  without any request, so an agent that pauses for longer (waiting for you to approve a shell command, say) finds its
+  result and its download URL gone: the URL then answers `410` with a message saying so, and the agent has to run the call
+  again. If your agents pause a lot, raise `SESSION_IDLE_TIMEOUT_SEC`; it costs session slots (see below).
 - To turn all of this off, set `RESULT_INLINE_LIMIT_CHARS=0`: results and REA's own tool schemas are then relayed
   exactly as REA sent them. (While it is on, the gateway removes the `outputSchema` of REA's tools, because a stub
   cannot satisfy them and a client that validates would reject it. The text the model reads is unchanged.)

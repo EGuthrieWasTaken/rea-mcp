@@ -53,10 +53,10 @@ export function createUploadHandler(deps: UploadDeps): (ticket: UploadTicket, re
   return async (ticket, req, res) => {
     const claim = tickets.claim(ticket);
     if (claim === "already-claimed") {
-      return respond(res, 409, { code: "conflict", message: "This upload URL has already been used. Ask for a new one." }, true);
+      return respond(res, 409, { code: "conflict", message: "This upload URL has already been used. Ask for a new one with request_upload." }, true);
     }
     if (claim === "expired") {
-      return respond(res, 410, { code: "expired", message: "This upload URL has expired. Ask for a new one." }, true);
+      return respond(res, 410, { code: "expired", message: "This upload URL has expired. Ask for a new one with request_upload." }, true);
     }
 
     // From here the ticket is spent, whatever happens.

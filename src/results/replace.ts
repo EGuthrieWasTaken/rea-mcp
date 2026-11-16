@@ -6,7 +6,7 @@ export const PREVIEW_CHARS = 2000;
 
 /** What a client is told to do with the stub. */
 const NOTE_STORED =
-  "The full output was too large to send in one piece, so it is stored. Read it in pieces with read_result (result_id, offset, length), or get all of it with request_download and run the curl command it returns. Asking REA for less (a smaller limit, a summary, a narrower range) also gives a smaller result.";
+  "The full output was too large to send in one piece, so it is stored. Read it in pieces with read_result (result_id, offset, length), or get all of it with request_download and run the curl command it returns. The stored text is deleted when this session ends, which happens after a few minutes without any request, so read or download it soon; if it is gone, run the call again. chars counts characters; bytes, and the offset and length of read_result, count UTF-8 bytes. Asking REA for less (a smaller limit, a summary, a narrower range) also gives a smaller result.";
 const NOTE_NOT_STORED =
   "The full output was too large to send in one piece and could not be stored, because this session's stored results are full. Ask REA for less (a smaller limit, a summary, a narrower range).";
 

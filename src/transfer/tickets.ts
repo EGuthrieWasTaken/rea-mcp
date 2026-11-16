@@ -87,6 +87,9 @@ export class TicketLimitError extends Error {
 
 export type Claim = "claimed" | "already-claimed" | "expired";
 
+/** The error code of a download ticket whose session ended before it was used. */
+export const SESSION_ENDED = "session_ended";
+
 export interface TicketStoreOptions {
   /** How long an unused ticket lasts, and how long a finished or expired one is remembered. */
   ttlMs: number;
@@ -191,10 +194,16 @@ export class TicketStore {
     return false;
   }
 
-  /** Download tickets die with the session that asked for them: the file they name is deleted with it. */
+  /**
+   * Download tickets die with the session that asked for them: the file they name is deleted with it. Each unused one is marked
+   * failed (`session_ended`), not forgotten, so that someone who holds its URL is told why it stopped working; it is forgotten
+   * one lifetime later like any finished ticket. A download already streaming is left to finish.
+   */
   revokeDownloads(sessionId: string): void {
-    for (const [id, ticket] of this.tickets) {
-      if (ticket.kind === "download" && ticket.sessionId === sessionId) this.tickets.delete(id);
+    for (const ticket of this.tickets.values()) {
+      if (ticket.kind === "download" && ticket.sessionId === sessionId && ticket.state === "pending") {
+        this.fail(ticket, SESSION_ENDED, "The session that made this result has ended.");
+      }
     }
   }
 

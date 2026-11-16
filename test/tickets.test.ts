@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_LIVE_TICKETS, TicketLimitError, TicketStore, type Ticket } from "../src/transfer/tickets.js";
+import { MAX_LIVE_TICKETS, SESSION_ENDED, TicketLimitError, TicketStore, type Ticket } from "../src/transfer/tickets.js";
 
 const TTL = 900_000;
 
@@ -257,15 +257,33 @@ describe("tickets: sessions", () => {
     expect(store.busy("s1")).toBe(false);
   });
 
-  it("revokes a session's download tickets and nothing else", () => {
+  it("fails a session's unused download tickets, with the reason, and touches nothing else", () => {
     const { store } = make();
     const mine = download(store, "s1");
     const other = download(store, "s2");
     const myUpload = upload(store, "s1");
     store.revokeDownloads("s1");
-    expect(store.find(mine.ticket.id, mine.secret)).toBeUndefined();
-    expect(store.find(other.ticket.id, other.secret)).toBe(other.ticket);
+    // Someone with the right secret still finds the ticket, so that they can be told why it stopped working.
+    expect(store.find(mine.ticket.id, mine.secret)).toBe(mine.ticket);
+    expect(mine.ticket).toMatchObject({ state: "failed", error: { code: SESSION_ENDED } });
+    // A wrong secret is as unknown as ever.
+    expect(store.find(mine.ticket.id, "wrong")).toBeUndefined();
+    expect(other.ticket.state).toBe("pending");
+    expect(myUpload.ticket.state).toBe("pending");
     expect(store.find(myUpload.ticket.id, myUpload.secret)).toBe(myUpload.ticket);
+  });
+
+  it("leaves a download that is already streaming to finish, and forgets the failed ticket one lifetime later", () => {
+    const { store, advance } = make();
+    const streaming = download(store, "s1");
+    const unused = download(store, "s1");
+    store.claim(streaming.ticket);
+    store.revokeDownloads("s1");
+    expect(streaming.ticket.state).toBe("streaming");
+    expect(unused.ticket.state).toBe("failed");
+    advance(TTL);
+    expect(store.get(unused.ticket.id)).toBeUndefined();
+    expect(store.get(streaming.ticket.id)).toBe(streaming.ticket);
   });
 });
 

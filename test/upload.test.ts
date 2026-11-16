@@ -121,6 +121,7 @@ describe("upload: tickets are spent once", () => {
     const again = await send(t.port, "PUT", path, [Buffer.from("second")]);
     expect(again.status).toBe(409);
     expect(json(again).code).toBe("conflict");
+    expect(String(json(again).message)).toContain("request_upload");
     expect(readFileSync(join(t.inboxDir, "once.bin"), "utf8")).toBe("first");
   });
 
@@ -131,6 +132,7 @@ describe("upload: tickets are spent once", () => {
     const reply = await send(t.port, "PUT", path, [Buffer.from("too late")]);
     expect(reply.status).toBe(410);
     expect(json(reply).code).toBe("expired");
+    expect(String(json(reply).message)).toContain("request_upload");
     expect(readdirSync(t.inboxDir)).toEqual([]);
     expect(ticket.state).toBe("pending");
     expect(t.store.effectiveState(ticket)).toBe("expired");
