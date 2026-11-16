@@ -46,6 +46,8 @@ export interface HarnessOptions {
     stallMs?: number;
     sessionStoreLimitBytes?: number;
     allowedHosts?: string[];
+    /** What the messages say a session lasts without a request (the harness's own idle timeout is separate). */
+    sessionIdleTimeoutSec?: number;
   };
   /** A hand-made gateway in place of the real one, for tests of the relay alone. */
   gateway?: SessionGateway;
@@ -88,6 +90,7 @@ export const startHarness = async (options: HarnessOptions = {}): Promise<Harnes
           inboxMaxBytes: options.files.inboxMaxBytes ?? 4_294_967_296,
           ticketTtlSec: options.files.ticketTtlSec ?? 900,
           resultInlineLimit: options.files.resultInlineLimit ?? 40_000,
+          sessionIdleTimeoutSec: options.files.sessionIdleTimeoutSec ?? 300,
           ...(options.files.stallMs === undefined ? {} : { stallMs: options.files.stallMs }),
           ...(options.files.sessionStoreLimitBytes === undefined ? {} : { sessionStoreLimitBytes: options.files.sessionStoreLimitBytes }),
         });

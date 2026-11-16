@@ -23,6 +23,8 @@ export interface FeatureOptions {
   ticketTtlSec: number;
   /** RESULT_INLINE_LIMIT_CHARS */
   resultInlineLimit: number;
+  /** SESSION_IDLE_TIMEOUT_SEC: the messages say how long a stored result lives. */
+  sessionIdleTimeoutSec: number;
   /** Test hooks. */
   stallMs?: number;
   sessionStoreLimitBytes?: number;
@@ -71,6 +73,7 @@ export async function createFeatures(options: FeatureOptions): Promise<Features>
       maxUploadBytes: options.maxUploadBytes,
       inboxMaxBytes: options.inboxMaxBytes,
       resultInlineLimit: options.resultInlineLimit,
+      sessionIdleTimeoutSec: options.sessionIdleTimeoutSec,
     },
   });
 
@@ -83,6 +86,7 @@ export async function createFeatures(options: FeatureOptions): Promise<Features>
   const download = createDownloadHandler({
     tickets,
     logger: options.logger,
+    idleTimeoutSec: options.sessionIdleTimeoutSec,
     fileFor: (ticket) => results.get(ticket.sessionId, ticket.resultId)?.file,
   });
   const routes: TransferRoutes = {

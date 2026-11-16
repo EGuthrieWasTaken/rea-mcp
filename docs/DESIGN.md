@@ -1819,3 +1819,26 @@ ended, and its stored results were deleted with it ... Run the analysis again an
 while the same path with a wrong secret was still the bare `404`; `read_result` from a new session gave one message that says a
 result is deleted when its session ends and to run the call again, and `upload_status` named the id it was given. (The check of
 `max_bytes` lowering was not meaningful on that container, whose limit is the default 256 MiB, and is covered by the tests.)
+
+### 18.10 The second desktop-agent test, and stating the idle time (change `state-the-idle-time`) (**Ran**)
+
+The second run of the same written test (2026-11-15/16, after `clearer-stored-result-messages` and with `SESSION_IDLE_TIMEOUT_SEC=600`)
+passed every step. Part D waited 12 minutes (three `sleep 240`) with no call to the connector; the gateway's log shows the
+session's last request at 01:48:15Z and `session ended: idle` at 01:58:23Z (600 s plus the reaper's interval), and the saved
+download URL then answered `410` at 02:00:29Z with the new message. The connector reconnected by itself (a request without a
+session, one with the stale session, then a new session), and REA's own `No app is open` followed, because the new session had
+nothing open.
+
+The agent's questions were about wording: the note said "a few minutes" where the gateway knows the number; nothing said that
+the open binary goes with the session; the stub advised "a smaller limit" for tools without one; a retried `curl -o` overwrote a
+good download with `--fail-with-body`'s error text (the agent had rerun a spent command on purpose); `upload_status` gave no next
+step. The agent also quoted the **previous** tool descriptions, without the "REA" prefix, so the desktop app was still showing the
+tool list it fetched before the server was updated (the server's own `tools/list` had the new text). `state-the-idle-time` fixes
+the wording; the cached list needs the connector to be refreshed.
+
+Run on a built image with `SESSION_IDLE_TIMEOUT_SEC=60`: the `request_download` and `read_result` descriptions said "after 1 minute
+without a request"; the stub's note said "after 1 minute without any request to this server (any call to the REA tools restarts the
+timer)" and "call open_binary again", without "a smaller limit"; after 75 s without a request the download URL answered `410`
+`{"code":"gone", ... "a session ends after 1 minute without a request, and its open binary goes too). Open the binary again, run
+the analysis again, and ask for a new download with request_download."}`; in the new session `read_result` said the same with
+"call open_binary again", and `upload_status` for an unknown id said to call `request_upload` for a new upload.

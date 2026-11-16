@@ -71,6 +71,7 @@ async function main(): Promise<void> {
       inboxMaxBytes: config.inboxMaxBytes,
       ticketTtlSec: config.transferTicketTtlSec,
       resultInlineLimit: config.resultInlineLimitChars,
+      sessionIdleTimeoutSec: config.sessionIdleTimeoutSec,
     });
   } catch (error) {
     logger.error("the work directory is not usable", {

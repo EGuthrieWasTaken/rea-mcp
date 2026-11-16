@@ -6,12 +6,15 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { open } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
+import { describeDuration } from "../duration.js";
 import type { Logger } from "../logger.js";
 import { SESSION_ENDED, type DownloadTicket, type TicketStore } from "./tickets.js";
 
 export interface DownloadDeps {
   tickets: TicketStore;
   logger: Logger;
+  /** SESSION_IDLE_TIMEOUT_SEC, so that the message can say how long a session lasts without a request. */
+  idleTimeoutSec: number;
   /** The path of the stored file for this ticket, or undefined if it is no longer there. */
   fileFor(ticket: DownloadTicket): string | undefined;
 }
@@ -38,8 +41,7 @@ export function createDownloadHandler(deps: DownloadDeps): (ticket: DownloadTick
     if (ticket.state === "failed" && ticket.error?.code === SESSION_ENDED) {
       return respond(res, 410, {
         code: "gone",
-        message:
-          "The session that made this result has ended, and its stored results were deleted with it (a session ends after a few minutes without a request). Run the analysis again and ask for a new download with request_download.",
+        message: `The session that made this result has ended, and its stored results were deleted with it (a session ends after ${describeDuration(deps.idleTimeoutSec)} without a request, and its open binary goes too). Open the binary again, run the analysis again, and ask for a new download with request_download.`,
       });
     }
     const claim = tickets.claim(ticket);

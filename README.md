@@ -161,6 +161,11 @@ and not the key to `.mcp.json`, but that server was still awaiting approval, so 
 run end to end against the container with Claude Code 2.1.319 in `claude -p` mode: all 255 tools appear, and an
 analysis of a sample works.
 
+**After you update the server, refresh the connector.** The Claude desktop app was seen quoting the previous tool descriptions
+(and showing no tool titles) after the server had been updated, so it keeps the list it fetched when the connector was connected.
+Reconnect the connector, and if the new descriptions still do not appear, remove and re-add it (which action refreshes it was not
+checked: **UNVERIFIED**).
+
 **claude.ai custom connector** (steps from Anthropic's help page; run by the maintainer against this server, see section 18.3 of `docs/DESIGN.md`): open
 **Customize, Connectors**, choose **+ Add**, **Add custom connector**, enter `https://<host>/mcp`, and
 under **Request headers** add `x-api-key` with your key; choose **No sign in** for authentication.
@@ -260,7 +265,11 @@ stores the whole text under `/work/results` and sends a short stub instead:
   starts); a session can store at most 256 MiB. A session ends after `SESSION_IDLE_TIMEOUT_SEC` (5 minutes by default)
   without any request, so an agent that pauses for longer (waiting for you to approve a shell command, say) finds its
   result and its download URL gone: the URL then answers `410` with a message saying so, and the agent has to run the call
-  again. If your agents pause a lot, raise `SESSION_IDLE_TIMEOUT_SEC`; it costs session slots (see below).
+  again. The tools' descriptions and messages state the actual time (they are built from `SESSION_IDLE_TIMEOUT_SEC`). The
+  session's open binary goes with it: after a long pause REA answers `No app is open` (REA's own words), the connector
+  reconnects by itself into a new, empty session, and the agent must call `open_binary` again before repeating anything.
+  Any call to the REA tools restarts the timer, and so does the end of an upload or download the session started. If your
+  agents pause a lot, raise `SESSION_IDLE_TIMEOUT_SEC`; it costs session slots (see below).
 - To turn all of this off, set `RESULT_INLINE_LIMIT_CHARS=0`: results and REA's own tool schemas are then relayed
   exactly as REA sent them. (While it is on, the gateway removes the `outputSchema` of REA's tools, because a stub
   cannot satisfy them and a client that validates would reject it. The text the model reads is unchanged.)

@@ -47,6 +47,7 @@ describe("transfer logging at debug level", () => {
         download: createDownloadHandler({
           tickets: store,
           logger: { debug() {}, info() {}, warn() {}, error() {}, enabled: () => false },
+          idleTimeoutSec: 600,
           fileFor: () => stored,
         }),
       }),

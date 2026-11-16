@@ -14,6 +14,7 @@ const options = (workDir: string, lines: string[] = []) => ({
   inboxMaxBytes: 10_000,
   ticketTtlSec: 900,
   resultInlineLimit: 40_000,
+  sessionIdleTimeoutSec: 300,
 });
 
 describe("createFeatures at startup (task 2.2)", () => {
