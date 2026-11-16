@@ -22,6 +22,7 @@ const start = async () => {
       download: createDownloadHandler({
         tickets: store,
         logger: { debug() {}, info() {}, warn() {}, error() {}, enabled: () => false },
+        idleTimeoutSec: 600,
         fileFor: (ticket) => files.get(ticket.resultId),
       }),
     }),
@@ -102,6 +103,8 @@ describe("download", () => {
     expect(reply.status).toBe(410);
     expect(codeOf(reply.body)).toBe("gone");
     expect(reply.body.toString()).toContain("session");
+    expect(reply.body.toString()).toContain("10 minutes without a request");
+    expect(reply.body.toString()).toContain("Open the binary again");
     expect(reply.body.toString()).toContain("request_download");
     const wrong = await get(t.port, `/download/${ticket.id}/${"x".repeat(43)}`);
     expect(wrong.status).toBe(404);

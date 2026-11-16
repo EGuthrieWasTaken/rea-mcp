@@ -332,7 +332,7 @@ describe("the words the tools use", () => {
     const stub = object(await call(client, "big", { chars: 20_000 }));
     const note = String(stub.note);
     expect(note).toContain("deleted when this session ends");
-    expect(note).toContain("a few minutes without any request");
+    expect(note).toContain("after 5 minutes without any request");
     expect(note).toContain("UTF-8 bytes");
     expect(note).toContain("chars counts characters");
   });
@@ -352,7 +352,40 @@ describe("the words the tools use", () => {
     expect(answers.size).toBe(1);
     const [text] = [...answers];
     expect(text).toContain("deleted when their session ends");
-    expect(text).toContain("run the call that produced it again");
+    expect(text).toContain("after 5 minutes without a request");
+    expect(text).toContain("call open_binary again");
+  });
+
+  it("say the configured idle time everywhere a lifetime is mentioned", async () => {
+    const { client } = await start({ resultInlineLimit: limit, sessionIdleTimeoutSec: 600 });
+    const stub = object(await call(client, "big", { chars: 20_000 }));
+    expect(String(stub.note)).toContain("after 10 minutes without any request");
+    const missing = await call(client, "read_result", { result_id: "r_AAAAAAAAAAAAAAAA" });
+    expect(textOf(missing)).toContain("after 10 minutes without a request");
+    const { tools } = await client.listTools();
+    for (const name of ["request_download", "read_result"]) {
+      const description = tools.find((tool) => tool.name === name)?.description ?? "";
+      expect(description, name).toContain("after 10 minutes without a request");
+      expect(description, name).not.toContain("{IDLE}");
+    }
+    const download = object(await call(client, "request_download", { result_id: stub.result_id }));
+    expect(String(download.download_url)).toContain("/download/");
+    const odd = await startHarness({ files: { resultInlineLimit: limit, sessionIdleTimeoutSec: 90 } });
+    const second = await connectClient(odd);
+    const oddStub = object(await call(second.client, "big", { chars: 20_000 }));
+    expect(String(oddStub.note)).toContain("after 90 seconds without any request");
+  });
+
+  it("warn that a failed download writes curl's error into the output file", async () => {
+    const { client } = await start({ resultInlineLimit: limit });
+    const stub = object(await call(client, "big", { chars: 20_000 }));
+    const out = object(await call(client, "request_download", { result_id: stub.result_id }));
+    expect(String(out.next_steps)).toContain("use a new file name for any retry");
+  });
+
+  it("tell an agent that asks about an unknown upload what to do next", async () => {
+    const { client } = await start();
+    expect(textOf(await call(client, "upload_status", { upload_id: "u_nothing" }))).toContain("call request_upload for a new upload");
   });
 
   it("echo the id that upload_status was given, shortened, and say records are kept for a while", async () => {

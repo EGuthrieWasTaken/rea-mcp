@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { extractText, PREVIEW_CHARS, previewOf, replaceResult, resultSize, stubJson } from "../src/results/replace.js";
 
-const info = { resultId: "r_AAAAAAAAAAAAAAAA", tool: "list_strings", chars: 10, bytes: 12, preview: "pre" };
+const info = { resultId: "r_AAAAAAAAAAAAAAAA", tool: "list_strings", chars: 10, bytes: 12, preview: "pre", idle: "10 minutes" };
 const stubOf = (result: Record<string, unknown>): Record<string, unknown> => {
   const item = (result.content as { text: string }[])[0];
   return JSON.parse(item?.text ?? "null") as Record<string, unknown>;
@@ -82,6 +82,18 @@ describe("stubJson", () => {
     });
     expect(stub.note).toContain("read_result");
     expect(stub.note).toContain("request_download");
+  });
+
+  it("gives the idle time in the note, says the open binary goes with the session, and does not advise a limit every tool lacks", () => {
+    const note = String((JSON.parse(stubJson(info)) as Record<string, unknown>).note);
+    expect(note).toContain("after 10 minutes without any request");
+    expect(note).toContain("any call to the REA tools restarts the timer");
+    expect(note).toContain("open binary goes too");
+    expect(note).toContain("call open_binary again");
+    expect(note).toContain("UTF-8 bytes");
+    expect(note).not.toContain("a smaller limit");
+    const other = String((JSON.parse(stubJson({ ...info, idle: "90 seconds" })) as Record<string, unknown>).note);
+    expect(other).toContain("after 90 seconds without any request");
   });
 
   it("says plainly when the result could not be stored, and still has the preview", () => {

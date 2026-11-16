@@ -4,11 +4,15 @@
 /** The preview in a stub: the first this many characters of the stored text. */
 export const PREVIEW_CHARS = 2000;
 
-/** What a client is told to do with the stub. */
-const NOTE_STORED =
-  "The full output was too large to send in one piece, so it is stored. Read it in pieces with read_result (result_id, offset, length), or get all of it with request_download and run the curl command it returns. The stored text is deleted when this session ends, which happens after a few minutes without any request, so read or download it soon; if it is gone, run the call again. chars counts characters; bytes, and the offset and length of read_result, count UTF-8 bytes. Asking REA for less (a smaller limit, a summary, a narrower range) also gives a smaller result.";
+/** What a client is told to do with the stub. `idle` is how long a session may go without a request, as people say it ("10 minutes"). */
+const noteStored = (idle: string): string =>
+  "The full output was too large to send in one piece, so it is stored. Read it in pieces with read_result (result_id, offset, length), or get all of it with request_download and run the curl command it returns. " +
+  `The stored text is deleted when this session ends, which happens after ${idle} without any request to this server (any call to the REA tools restarts the timer), so read or download it soon. ` +
+  "When a session ends its open binary goes too: if the result is gone, call open_binary again and then repeat the call. " +
+  "chars counts characters; bytes, and the offset and length of read_result, count UTF-8 bytes. " +
+  'Many REA tools take a detail ("summary"), a limit or a range argument; asking for less gives a smaller result.';
 const NOTE_NOT_STORED =
-  "The full output was too large to send in one piece and could not be stored, because this session's stored results are full. Ask REA for less (a smaller limit, a summary, a narrower range).";
+  'The full output was too large to send in one piece and could not be stored, because this session\'s stored results are full. Ask REA for less (many tools take a detail ("summary"), a limit or a range argument).';
 
 /** The length of a result as the client receives it: its serialized JSON, `content` and `structuredContent` both counted. */
 export const resultSize = (result: unknown): number => JSON.stringify(result).length;
@@ -48,6 +52,8 @@ export interface StubInfo {
   chars: number;
   bytes: number;
   preview: string;
+  /** How long a session may go without a request, as people say it. */
+  idle: string;
 }
 
 /** The JSON the stub carries as text. */
@@ -62,7 +68,7 @@ export function stubJson(info: StubInfo): string {
     bytes: info.bytes,
     preview: info.preview,
     stored,
-    note: stored ? NOTE_STORED : NOTE_NOT_STORED,
+    note: stored ? noteStored(info.idle) : NOTE_NOT_STORED,
   });
 }
 
